@@ -107,6 +107,10 @@ export default function MediaItemCard({
               onCaptionChange(item.id, e.target.value);
             }}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              // Prevent spacebar and other keys from triggering video controls
+              e.stopPropagation();
+            }}
             placeholder="Caption..."
             className="w-full px-1.5 py-0.5 text-[10px] bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
           />
@@ -114,6 +118,12 @@ export default function MediaItemCard({
 
         {/* Column 3: Type Indicator, Exclude, and Delete */}
         <div className="flex items-center justify-end gap-1">
+          {/* Clips indicator for videos */}
+          {item.type === 'video' && item.clips && item.clips.length > 0 && (
+            <span className="text-[10px] px-2 py-1 rounded bg-green-600 text-white font-semibold" title={`${item.clips.length} clip${item.clips.length !== 1 ? 's' : ''} selected`}>
+              ✓ {item.clips.length}
+            </span>
+          )}
           <span className={`text-[10px] px-2 py-1 rounded ${
             item.type === 'video' ? 'bg-blue-600 text-white' : 'bg-green-600 text-white'
           }`}>

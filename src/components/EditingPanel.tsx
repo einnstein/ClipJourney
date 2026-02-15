@@ -185,6 +185,12 @@ export default function EditingPanel({
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input field
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
       if (!videoRef.current || !selectedItem || selectedItem.type !== 'video') return;
 
       if (['ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
