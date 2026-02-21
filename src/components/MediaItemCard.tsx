@@ -32,6 +32,20 @@ export default function MediaItemCard({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const getEditedDuration = () => {
+    if (item.type !== 'video' || !item.duration) return null;
+    
+    // If no clips, entire video is included
+    if (!item.clips || item.clips.length === 0) {
+      return item.duration;
+    }
+    
+    // Sum up clip durations
+    return item.clips.reduce((sum, clip) => sum + (clip.end - clip.start), 0);
+  };
+
+  const editedDuration = getEditedDuration();
+
   return (
     <div
       onClick={() => onSelect(item.id)}
@@ -78,8 +92,23 @@ export default function MediaItemCard({
               {item.filename}
             </div>
             {item.type === 'video' && (
-              <div className="text-[10px] text-gray-400">
-                {item.duration ? formatDuration(item.duration) : 'Loading...'}
+              <div className="flex items-center gap-1.5 text-[10px]">
+                {item.duration && (
+                  <span className="text-blue-400 font-semibold">
+                    {formatDuration(item.duration)}
+                  </span>
+                )}
+                {editedDuration !== null && editedDuration !== item.duration && (
+                  <>
+                    <span className="text-gray-600">→</span>
+                    <span className="text-green-400 font-semibold">
+                      {formatDuration(editedDuration)}
+                    </span>
+                  </>
+                )}
+                {!item.duration && (
+                  <span className="text-gray-500">Loading...</span>
+                )}
               </div>
             )}
           </div>

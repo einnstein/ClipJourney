@@ -1,3 +1,6 @@
 npm run tauri dev
 
+---------stage and commit eveything with comments
+cd D:\Tauri\ClipJourney
+
 git add . && git commit -m "Add project save/load, clip indicators, and UI improvements" && git push

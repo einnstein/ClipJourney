@@ -22,6 +22,8 @@ export default function EditingPanel({
   const [pendingStart, setPendingStart] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{x: number, y: number} | null>(null);
   const [draggingClip, setDraggingClip] = useState<{id: string, type: 'move' | 'resize-left' | 'resize-right'} | null>(null);
+  const [isPreviewingClips, setIsPreviewingClips] = useState(false);
+  const [currentPreviewClipIndex, setCurrentPreviewClipIndex] = useState(0);
 
   useEffect(() => {
     if (selectedItem?.type === 'video') {
@@ -30,10 +32,14 @@ export default function EditingPanel({
       setPendingStart(null);
       setIsPlaying(false);
       setCurrentTime(0);
+      setIsPreviewingClips(false);
+      setCurrentPreviewClipIndex(0);
     } else {
       setVideoSrc('');
       setClips([]);
       setPendingStart(null);
+      setIsPreviewingClips(false);
+      setCurrentPreviewClipIndex(0);
     }
   }, [selectedItem?.id]);
 
@@ -100,6 +106,55 @@ export default function EditingPanel({
     }
     setIsPlaying(!isPlaying);
   };
+
+  const handlePreviewClips = () => {
+    if (!videoRef.current || clips.length === 0) return;
+    
+    // Start from first clip
+    setIsPreviewingClips(true);
+    setCurrentPreviewClipIndex(0);
+    videoRef.current.currentTime = clips[0].start;
+    videoRef.current.play();
+    setIsPlaying(true);
+  };
+
+  const handleStopPreview = () => {
+    if (!videoRef.current) return;
+    setIsPreviewingClips(false);
+    setCurrentPreviewClipIndex(0);
+    videoRef.current.pause();
+    setIsPlaying(false);
+  };
+
+  // Monitor video time to handle clip preview playback
+  useEffect(() => {
+    if (!videoRef.current || !isPreviewingClips || clips.length === 0) return;
+
+    const video = videoRef.current;
+    
+    const handleTimeUpdate = () => {
+      const currentClip = clips[currentPreviewClipIndex];
+      if (!currentClip) return;
+
+      // Check if we've reached the end of current clip
+      if (video.currentTime >= currentClip.end) {
+        // Move to next clip
+        if (currentPreviewClipIndex < clips.length - 1) {
+          setCurrentPreviewClipIndex(currentPreviewClipIndex + 1);
+          video.currentTime = clips[currentPreviewClipIndex + 1].start;
+        } else {
+          // Finished all clips
+          setIsPreviewingClips(false);
+          setCurrentPreviewClipIndex(0);
+          video.pause();
+          setIsPlaying(false);
+        }
+      }
+    };
+
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [isPreviewingClips, currentPreviewClipIndex, clips]);
 
   const handleSeek = (seconds: number) => {
     if (!videoRef.current) return;
@@ -357,7 +412,22 @@ export default function EditingPanel({
 
         {/* Clips List */}
         <div className="w-64 bg-gray-800 border-l border-gray-700 flex flex-col flex-shrink-0">
-          <div className="p-2 border-b border-gray-700 text-xs font-semibold">Selected Clips</div>
+          <div className="p-2 border-b border-gray-700 flex items-center justify-between">
+            <span className="text-xs font-semibold">Selected Clips</span>
+            {clips.length > 0 && (
+              <button
+                onClick={isPreviewingClips ? handleStopPreview : handlePreviewClips}
+                className={`px-2 py-1 rounded text-xs font-medium ${
+                  isPreviewingClips 
+                    ? 'bg-orange-600 hover:bg-orange-700' 
+                    : 'bg-green-600 hover:bg-green-700'
+                }`}
+                title={isPreviewingClips ? 'Stop preview' : 'Preview all clips in sequence'}
+              >
+                {isPreviewingClips ? '⏹ Stop' : '▶ Preview'}
+              </button>
+            )}
+          </div>
           <div className="flex-1 overflow-auto p-2">
             {clips.length === 0 ? (
               <div className="text-xs text-gray-500 text-center mt-4">
@@ -365,9 +435,21 @@ export default function EditingPanel({
               </div>
             ) : (
               clips.map((clip, index) => (
-                <div key={clip.id} className="bg-gray-700 p-2 rounded mb-2 text-xs">
+                <div 
+                  key={clip.id} 
+                  className={`bg-gray-700 p-2 rounded mb-2 text-xs ${
+                    isPreviewingClips && index === currentPreviewClipIndex 
+                      ? 'ring-2 ring-green-500' 
+                      : ''
+                  }`}
+                >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-semibold">Clip {index + 1}</span>
+                    <span className="font-semibold">
+                      Clip {index + 1}
+                      {isPreviewingClips && index === currentPreviewClipIndex && (
+                        <span className="ml-1 text-green-400">▶</span>
+                      )}
+                    </span>
                     <button
                       onClick={() => handleDeleteClip(clip.id)}
                       className="text-red-400 hover:text-red-300"
