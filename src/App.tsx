@@ -16,6 +16,7 @@ function App() {
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
 
   const selectedItem = mediaItems.find(item => item.id === selectedItemId) || null;
 
@@ -99,6 +100,7 @@ function App() {
       await writeTextFile(filePath, JSON.stringify(projectData, null, 2));
       setProjectPath(filePath);
       setHasUnsavedChanges(false);
+      // Recent projects feature temporarily disabled
     } catch (error) {
       console.error('Error saving project:', error);
       alert(`Failed to save project: ${error}`);
@@ -132,6 +134,7 @@ function App() {
       await writeTextFile(filePath, JSON.stringify(projectData, null, 2));
       setProjectPath(filePath);
       setHasUnsavedChanges(false);
+      // Recent projects feature temporarily disabled
     } catch (error) {
       console.error('Error saving project:', error);
       alert(`Failed to save project: ${error}`);
@@ -173,6 +176,7 @@ function App() {
       setSelectedItemId(projectData.selectedItemId || null);
       setProjectPath(filePathStr);
       setHasUnsavedChanges(false);
+      // Recent projects feature temporarily disabled
     } catch (error) {
       console.error('Error loading project:', error);
       alert(`Failed to load project: ${error}`);
@@ -358,6 +362,7 @@ function App() {
           mediaItems={mediaItems}
           selectedItemId={selectedItemId}
           defaultPhotoDuration={defaultPhotoDuration}
+          isPreviewMode={isPreviewMode}
           onMediaItemsChange={setMediaItems}
           onSelectItem={handleSelectItem}
         />
@@ -392,6 +397,7 @@ function App() {
               mediaItems={mediaItems}
               defaultPhotoDuration={defaultPhotoDuration}
               onCurrentItemChange={handleSelectItem}
+              onPreviewModeChange={setIsPreviewMode}
             />
           </div>
         </div>

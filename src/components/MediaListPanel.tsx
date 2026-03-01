@@ -10,6 +10,7 @@ interface MediaListPanelProps {
   mediaItems: MediaItem[];
   selectedItemId: string | null;
   defaultPhotoDuration: number;
+  isPreviewMode: boolean;
   onMediaItemsChange: (items: MediaItem[]) => void;
   onSelectItem: (id: string | null) => void;
 }
@@ -18,6 +19,7 @@ export default function MediaListPanel({
   mediaItems,
   selectedItemId,
   defaultPhotoDuration,
+  isPreviewMode,
   onMediaItemsChange,
   onSelectItem
 }: MediaListPanelProps) {
@@ -242,7 +244,15 @@ export default function MediaListPanel({
   }, [selectedItemId]);
 
   return (
-    <div className="w-[30%] bg-gray-800 border-r border-gray-700 flex flex-col">
+    <div className="w-[30%] bg-gray-800 border-r border-gray-700 flex flex-col relative">
+      {/* Preview Mode Overlay */}
+      {isPreviewMode && (
+        <div className="absolute inset-0 bg-black bg-opacity-60 z-50 flex flex-col items-center justify-center pointer-events-none">
+          <div className="text-white text-lg font-semibold mb-2">Preview in Progress</div>
+          <div className="text-gray-300 text-sm">Stop preview to edit media</div>
+        </div>
+      )}
+      
       <div className="p-3 border-b border-gray-700 flex items-center justify-between">
         <span className="font-semibold text-sm">Media List</span>
         <select

@@ -9,13 +9,15 @@ interface PreviewPanelProps {
   mediaItems: MediaItem[];
   defaultPhotoDuration: number;
   onCurrentItemChange: (itemId: string) => void;
+  onPreviewModeChange: (isPreview: boolean) => void;
 }
 
 export default function PreviewPanel({ 
   selectedItem, 
   mediaItems,
   defaultPhotoDuration,
-  onCurrentItemChange 
+  onCurrentItemChange,
+  onPreviewModeChange
 }: PreviewPanelProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -83,6 +85,7 @@ export default function PreviewPanel({
     setAccumulatedTime(0);
     setIsPreviewMode(true);
     isPreviewModeRef.current = true; // Sync ref
+    onPreviewModeChange(true); // Notify parent
     setTotalDuration(calculateTotalDuration(newPlaylist));
     loadMediaAtIndex(newPlaylist, 0);
   };
@@ -297,6 +300,7 @@ export default function PreviewPanel({
 
     // FOURTH: Clear all state
     setIsPreviewMode(false);
+    onPreviewModeChange(false); // Notify parent
     setIsPlaying(false);
     setPlaylist([]);
     setCurrentMediaIndex(0);
@@ -403,8 +407,17 @@ export default function PreviewPanel({
                 className="max-w-full max-h-full object-contain"
               />
             ) : (
-              <div className="text-gray-500">
-                {selectedItem ? 'Loading...' : 'Select a media item'}
+              <div className="text-gray-500 text-center">
+                {isPreviewMode ? (
+                  'Loading...'
+                ) : selectedItem ? (
+                  <div>
+                    <div className="text-lg mb-2">Ready to preview</div>
+                    <div className="text-sm">Press "Play from Selected" or "Play from Start" to begin</div>
+                  </div>
+                ) : (
+                  'Select a media item'
+                )}
               </div>
             )}
             
