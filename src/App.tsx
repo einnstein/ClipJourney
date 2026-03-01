@@ -10,6 +10,7 @@ function App() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [outputFormat, setOutputFormat] = useState('MP4');
+  const [defaultPhotoDuration, setDefaultPhotoDuration] = useState(3);
   const [splitPosition, setSplitPosition] = useState(50); // 50% split
   const [isDragging, setIsDragging] = useState(false);
   const [showFileMenu, setShowFileMenu] = useState(false);
@@ -23,7 +24,7 @@ function App() {
     if (projectPath) {
       setHasUnsavedChanges(true);
     }
-  }, [mediaItems, outputFormat, splitPosition, selectedItemId]);
+  }, [mediaItems, outputFormat, defaultPhotoDuration, splitPosition, selectedItemId]);
 
   // Calculate total and edited lengths
   const { totalLength, editedLength } = useMemo(() => {
@@ -45,11 +46,16 @@ function App() {
           // No clips defined = include full video
           edited += item.duration;
         }
+      } else if (item.type === 'image') {
+        // Use individual photo duration if set, otherwise use global default
+        const photoDuration = item.photoDuration ?? defaultPhotoDuration;
+        total += photoDuration;
+        edited += photoDuration;
       }
     });
 
     return { totalLength: total, editedLength: edited };
-  }, [mediaItems]);
+  }, [mediaItems, defaultPhotoDuration]);
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -85,6 +91,7 @@ function App() {
           dateCreated: item.dateCreated.toISOString()
         })),
         outputFormat,
+        defaultPhotoDuration,
         splitPosition,
         selectedItemId
       };
@@ -117,6 +124,7 @@ function App() {
           dateCreated: item.dateCreated.toISOString()
         })),
         outputFormat,
+        defaultPhotoDuration,
         splitPosition,
         selectedItemId
       };
@@ -160,6 +168,7 @@ function App() {
 
       setMediaItems(restoredItems);
       setOutputFormat(projectData.outputFormat || 'MP4');
+      setDefaultPhotoDuration(projectData.defaultPhotoDuration || 3);
       setSplitPosition(projectData.splitPosition || 50);
       setSelectedItemId(projectData.selectedItemId || null);
       setProjectPath(filePathStr);
@@ -179,6 +188,7 @@ function App() {
     setMediaItems([]);
     setSelectedItemId(null);
     setOutputFormat('MP4');
+    setDefaultPhotoDuration(3);
     setSplitPosition(50);
     setProjectPath(null);
     setHasUnsavedChanges(false);
@@ -310,6 +320,19 @@ function App() {
           <div className="w-px h-8 bg-gray-700"></div>
           
           <div className="flex items-center gap-2">
+            <label className="text-sm">Default Photo Duration:</label>
+            <input 
+              type="number" 
+              value={defaultPhotoDuration}
+              onChange={(e) => setDefaultPhotoDuration(Math.max(0.1, Number(e.target.value)))}
+              min="0.1"
+              step="0.5"
+              className="w-20 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-sm"
+            />
+            <span className="text-sm text-gray-400">seconds</span>
+          </div>
+          
+          <div className="flex items-center gap-2">
             <label className="text-sm">Output Format:</label>
             <select 
               value={outputFormat}
@@ -334,6 +357,7 @@ function App() {
         <MediaListPanel
           mediaItems={mediaItems}
           selectedItemId={selectedItemId}
+          defaultPhotoDuration={defaultPhotoDuration}
           onMediaItemsChange={setMediaItems}
           onSelectItem={handleSelectItem}
         />

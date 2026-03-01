@@ -6,9 +6,11 @@ interface MediaItemCardProps {
   item: MediaItem;
   isSelected: boolean;
   isDragging: boolean;
+  defaultPhotoDuration: number;
   onSelect: (id: string) => void;
   onCaptionChange: (id: string, caption: string) => void;
   onShowCaptionToggle: (id: string) => void;
+  onPhotoDurationChange: (id: string, duration: number | undefined) => void;
   onDelete: (id: string) => void;
   onExclude: (id: string) => void;
   onDragHandleMouseDown: (e: React.MouseEvent, id: string) => void;
@@ -18,9 +20,11 @@ export default function MediaItemCard({
   item,
   isSelected,
   isDragging,
+  defaultPhotoDuration,
   onSelect,
   onCaptionChange,
   onShowCaptionToggle,
+  onPhotoDurationChange,
   onDelete,
   onExclude,
   onDragHandleMouseDown
@@ -33,6 +37,11 @@ export default function MediaItemCard({
   };
 
   const getEditedDuration = () => {
+    if (item.type === 'image') {
+      // For photos, use individual duration or global default
+      return item.photoDuration ?? defaultPhotoDuration;
+    }
+    
     if (item.type !== 'video' || !item.duration) return null;
     
     // If no clips, entire video is included
@@ -111,6 +120,11 @@ export default function MediaItemCard({
                 )}
               </div>
             )}
+            {item.type === 'image' && editedDuration !== null && (
+              <div className="text-[10px] text-green-400 font-semibold">
+                {formatDuration(editedDuration)}
+              </div>
+            )}
           </div>
         </div>
 
@@ -143,6 +157,23 @@ export default function MediaItemCard({
             placeholder="Caption..."
             className="w-full px-1.5 py-0.5 text-[10px] bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
           />
+          {item.type === 'image' && (
+            <input
+              type="number"
+              value={item.photoDuration ?? ''}
+              onChange={(e) => {
+                e.stopPropagation();
+                const value = e.target.value;
+                onPhotoDurationChange(item.id, value === '' ? undefined : Math.max(0.1, Number(value)));
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder={`${defaultPhotoDuration}s (default)`}
+              min="0.1"
+              step="0.5"
+              className="w-full px-1.5 py-0.5 text-[10px] bg-gray-800 border border-gray-600 rounded focus:outline-none focus:border-blue-500"
+            />
+          )}
         </div>
 
         {/* Column 3: Type Indicator, Exclude, and Delete */}

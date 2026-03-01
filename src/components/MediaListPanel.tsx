@@ -9,6 +9,7 @@ import MediaItemCard from './MediaItemCard';
 interface MediaListPanelProps {
   mediaItems: MediaItem[];
   selectedItemId: string | null;
+  defaultPhotoDuration: number;
   onMediaItemsChange: (items: MediaItem[]) => void;
   onSelectItem: (id: string | null) => void;
 }
@@ -16,6 +17,7 @@ interface MediaListPanelProps {
 export default function MediaListPanel({
   mediaItems,
   selectedItemId,
+  defaultPhotoDuration,
   onMediaItemsChange,
   onSelectItem
 }: MediaListPanelProps) {
@@ -164,6 +166,13 @@ export default function MediaListPanel({
     onMediaItemsChange(items);
   };
 
+  const handlePhotoDurationChange = (id: string, duration: number | undefined) => {
+    const items = mediaItems.map(item =>
+      item.id === id ? { ...item, photoDuration: duration } : item
+    );
+    onMediaItemsChange(items);
+  };
+
   useEffect(() => {
     if (!draggingId) return;
 
@@ -265,9 +274,11 @@ export default function MediaListPanel({
                 item={item}
                 isSelected={item.id === selectedItemId}
                 isDragging={draggingId === item.id}
+                defaultPhotoDuration={defaultPhotoDuration}
                 onSelect={onSelectItem}
                 onCaptionChange={handleCaptionChange}
                 onShowCaptionToggle={handleShowCaptionToggle}
+                onPhotoDurationChange={handlePhotoDurationChange}
                 onDelete={handleDeleteItem}
                 onExclude={handleExcludeItem}
                 onDragHandleMouseDown={handleDragHandleMouseDown}
