@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { save, open } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
+import { load } from '@tauri-apps/plugin-store';
 import { MediaItem } from './types';
 import MediaListPanel from './components/MediaListPanel';
 import PreviewPanel from './components/PreviewPanel';
@@ -17,8 +18,55 @@ function App() {
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [recentProjects, setRecentProjects] = useState<string[]>([]);
 
   const selectedItem = mediaItems.find(item => item.id === selectedItemId) || null;
+
+  // Load recent projects from Tauri store on mount
+  useEffect(() => {
+    const loadRecentProjects = async () => {
+      try {
+        const store = await load('settings.json', { autoSave: false, defaults: {} });
+        const stored = await store.get<string[]>('recentProjects');
+        console.log('Loaded recent projects:', stored);
+        if (Array.isArray(stored)) {
+          setRecentProjects(stored);
+        }
+      } catch (error) {
+        console.error('Error loading recent projects:', error);
+      }
+    };
+    loadRecentProjects();
+  }, []);
+
+  // Save recent projects to Tauri store when changed
+  useEffect(() => {
+    const saveRecentProjects = async () => {
+      try {
+        const store = await load('settings.json', { autoSave: false, defaults: {} });
+        await store.set('recentProjects', recentProjects);
+        await store.save();
+        console.log('Saved recent projects:', recentProjects);
+      } catch (error) {
+        console.error('Error saving recent projects:', error);
+      }
+    };
+    
+    // Save whenever recentProjects changes (including first save)
+    if (recentProjects.length > 0) {
+      saveRecentProjects();
+    }
+  }, [recentProjects]);
+
+  // Add project to recent list
+  const addToRecentProjects = (path: string) => {
+    setRecentProjects(prev => {
+      // Remove if already exists
+      const filtered = prev.filter(p => p !== path);
+      // Add to front, keep max 5
+      return [path, ...filtered].slice(0, 5);
+    });
+  };
 
   // Track changes to mark project as modified
   useEffect(() => {
@@ -100,7 +148,7 @@ function App() {
       await writeTextFile(filePath, JSON.stringify(projectData, null, 2));
       setProjectPath(filePath);
       setHasUnsavedChanges(false);
-      // Recent projects feature temporarily disabled
+      addToRecentProjects(filePath);
     } catch (error) {
       console.error('Error saving project:', error);
       alert(`Failed to save project: ${error}`);
@@ -134,10 +182,43 @@ function App() {
       await writeTextFile(filePath, JSON.stringify(projectData, null, 2));
       setProjectPath(filePath);
       setHasUnsavedChanges(false);
-      // Recent projects feature temporarily disabled
+      addToRecentProjects(filePath);
     } catch (error) {
       console.error('Error saving project:', error);
       alert(`Failed to save project: ${error}`);
+    }
+  };
+
+  const handleLoadRecentProject = async (filePath: string) => {
+    try {
+      // Check for unsaved changes
+      if (hasUnsavedChanges && mediaItems.length > 0) {
+        const confirmed = confirm('You have unsaved changes. Continue loading?');
+        if (!confirmed) return;
+      }
+
+      const content = await readTextFile(filePath);
+      const projectData = JSON.parse(content);
+
+      // Restore media items with Date objects
+      const restoredItems: MediaItem[] = projectData.mediaItems.map((item: any) => ({
+        ...item,
+        dateCreated: new Date(item.dateCreated)
+      }));
+
+      setMediaItems(restoredItems);
+      setOutputFormat(projectData.outputFormat || 'MP4');
+      setDefaultPhotoDuration(projectData.defaultPhotoDuration || 3);
+      setSplitPosition(projectData.splitPosition || 50);
+      setSelectedItemId(projectData.selectedItemId || null);
+      setProjectPath(filePath);
+      setHasUnsavedChanges(false);
+      addToRecentProjects(filePath);
+    } catch (error) {
+      console.error('Error loading recent project:', error);
+      alert(`Failed to load project: ${error}`);
+      // Remove from recent if file doesn't exist or can't be read
+      setRecentProjects(prev => prev.filter(p => p !== filePath));
     }
   };
 
@@ -176,7 +257,7 @@ function App() {
       setSelectedItemId(projectData.selectedItemId || null);
       setProjectPath(filePathStr);
       setHasUnsavedChanges(false);
-      // Recent projects feature temporarily disabled
+      addToRecentProjects(filePathStr);
     } catch (error) {
       console.error('Error loading project:', error);
       alert(`Failed to load project: ${error}`);
@@ -282,6 +363,29 @@ function App() {
                 >
                   Save Project As...
                 </button>
+                
+                {/* Recent Projects */}
+                {recentProjects.length > 0 && (
+                  <>
+                    <div className="border-t border-gray-700 my-1" />
+                    <div className="px-4 py-1 text-xs text-gray-500 uppercase">
+                      Recent Projects
+                    </div>
+                    {recentProjects.map((path, index) => (
+                      <button
+                        key={path}
+                        onClick={() => {
+                          handleLoadRecentProject(path);
+                          setShowFileMenu(false);
+                        }}
+                        className="w-full px-4 py-2 text-left hover:bg-gray-700 text-xs text-gray-300 truncate"
+                        title={path}
+                      >
+                        {index + 1}. {path.split('\\').pop()?.split('/').pop() || path}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             </>
           )}
