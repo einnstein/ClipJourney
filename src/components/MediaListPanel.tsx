@@ -228,6 +228,19 @@ export default function MediaListPanel({
     };
   }, [draggingId, hoverIndex, sortedItems, onMediaItemsChange]);
 
+  // Auto-scroll to selected item (for preview mode)
+  useEffect(() => {
+    if (selectedItemId) {
+      const element = itemRefs.current.get(selectedItemId);
+      if (element && containerRef.current) {
+        element.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center' 
+        });
+      }
+    }
+  }, [selectedItemId]);
+
   return (
     <div className="w-[30%] bg-gray-800 border-r border-gray-700 flex flex-col">
       <div className="p-3 border-b border-gray-700 flex items-center justify-between">

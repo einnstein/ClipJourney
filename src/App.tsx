@@ -387,7 +387,12 @@ function App() {
 
           {/* PreviewPanel */}
           <div style={{ height: `${100 - splitPosition}%` }}>
-            <PreviewPanel selectedItem={selectedItem} />
+            <PreviewPanel 
+              selectedItem={selectedItem} 
+              mediaItems={mediaItems}
+              defaultPhotoDuration={defaultPhotoDuration}
+              onCurrentItemChange={handleSelectItem}
+            />
           </div>
         </div>
       </div>
