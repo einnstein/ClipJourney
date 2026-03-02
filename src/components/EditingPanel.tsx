@@ -18,6 +18,7 @@ export default function EditingPanel({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [videoSrc, setVideoSrc] = useState('');
+  const [imageSrc, setImageSrc] = useState('');
   const [clips, setClips] = useState<ClipRange[]>([]);
   const [pendingStart, setPendingStart] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{x: number, y: number} | null>(null);
@@ -28,14 +29,37 @@ export default function EditingPanel({
   useEffect(() => {
     if (selectedItem?.type === 'video') {
       setVideoSrc(convertFileSrc(selectedItem.filepath));
+      setImageSrc('');
       setClips(selectedItem.clips || []);
       setPendingStart(null);
       setIsPlaying(false);
       setCurrentTime(0);
       setIsPreviewingClips(false);
       setCurrentPreviewClipIndex(0);
+    } else if (selectedItem?.type === 'image') {
+      setVideoSrc('');
+      setClips([]);
+      setPendingStart(null);
+      setIsPreviewingClips(false);
+      setCurrentPreviewClipIndex(0);
+      
+      // Load image
+      const loadImage = async () => {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const base64Image = await invoke<string>('read_image_as_base64', { 
+            imagePath: selectedItem.filepath 
+          });
+          setImageSrc(base64Image);
+        } catch (error) {
+          console.error('Error loading image:', error);
+          setImageSrc('');
+        }
+      };
+      loadImage();
     } else {
       setVideoSrc('');
+      setImageSrc('');
       setClips([]);
       setPendingStart(null);
       setIsPreviewingClips(false);
@@ -284,12 +308,27 @@ export default function EditingPanel({
 
   if (selectedItem.type === 'image') {
     return (
-      <div className="h-full bg-gray-850 border-b border-gray-700 flex flex-col">
-        <div className="p-3 border-b border-gray-700 font-semibold text-sm">
-          Editing Panel
+      <div className="h-full bg-gray-850 border-b border-gray-700 flex flex-col min-h-0">
+        <div className="p-3 border-b border-gray-700 font-semibold text-sm flex-shrink-0">
+          Editing Panel - {selectedItem.filename}
         </div>
-        <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
-          Images don't require clip selection
+        <div className="flex-1 flex min-h-0">
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="flex-1 flex items-center justify-center bg-black min-h-0">
+              {imageSrc ? (
+                <img 
+                  src={imageSrc} 
+                  alt={selectedItem.filename}
+                  className="max-w-full max-h-full object-contain"
+                />
+              ) : (
+                <div className="text-gray-500">Loading image...</div>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="p-2 text-center text-xs text-gray-500 border-t border-gray-700 flex-shrink-0">
+          Images don't require clip selection - adjust duration in media list
         </div>
       </div>
     );
