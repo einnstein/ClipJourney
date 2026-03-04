@@ -3,11 +3,14 @@
 import { useRef, useEffect, useState } from 'react';
 import { MediaItem } from '../types';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { CaptionSettings } from './Captionsettingsmodal'
 
 interface PreviewPanelProps {
   selectedItem: MediaItem | null;
   mediaItems: MediaItem[];
   defaultPhotoDuration: number;
+  captionSettings: CaptionSettings;
+  aspectRatio: string;
   onCurrentItemChange: (itemId: string) => void;
   onPreviewModeChange: (isPreview: boolean) => void;
 }
@@ -16,6 +19,8 @@ export default function PreviewPanel({
   selectedItem, 
   mediaItems,
   defaultPhotoDuration,
+  captionSettings,
+  aspectRatio,
   onCurrentItemChange,
   onPreviewModeChange
 }: PreviewPanelProps) {
@@ -335,6 +340,47 @@ export default function PreviewPanel({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const getCaptionPositionClass = () => {
+    const base = 'absolute px-4 py-2 rounded';
+    
+    switch (captionSettings.position) {
+      case 'bottom-left':
+        return `${base} bottom-4 left-4`;
+      case 'bottom-center':
+        return `${base} bottom-4 left-1/2 transform -translate-x-1/2`;
+      case 'bottom-right':
+        return `${base} bottom-4 right-4`;
+      case 'top-left':
+        return `${base} top-4 left-4`;
+      case 'top-center':
+        return `${base} top-4 left-1/2 transform -translate-x-1/2`;
+      case 'top-right':
+        return `${base} top-4 right-4`;
+      case 'center':
+        return `${base} top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2`;
+      default:
+        return `${base} bottom-4 left-1/2 transform -translate-x-1/2`;
+    }
+  };
+
+  const getCaptionStyle = () => {
+    const hexToRgba = (hex: string, opacity: number) => {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    };
+
+    return {
+      fontFamily: captionSettings.fontFamily,
+      fontSize: `${captionSettings.fontSize}px`,
+      color: captionSettings.textColor,
+      backgroundColor: hexToRgba(captionSettings.backgroundColor, captionSettings.backgroundOpacity),
+      fontWeight: captionSettings.bold ? 'bold' : 'normal',
+      fontStyle: captionSettings.italic ? 'italic' : 'normal'
+    };
+  };
+
   if (!selectedItem && mediaItems.length === 0) {
     return (
       <div className="h-full bg-gray-850 flex flex-col">
@@ -389,45 +435,54 @@ export default function PreviewPanel({
       <div className="flex-1 flex min-h-0">
         {/* Video Player */}
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 flex items-center justify-center bg-black min-h-0 relative">
-            {videoSrc ? (
-              <video
-                ref={videoRef}
-                className="max-w-full max-h-full object-contain"
-                src={videoSrc}
-                onTimeUpdate={isPreviewMode ? handleVideoTimeUpdate : undefined}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-              />
-            ) : imageSrc ? (
-              <img 
-                ref={imageRef}
-                src={imageSrc} 
-                alt={currentItem?.filename}
-                className="max-w-full max-h-full object-contain"
-              />
-            ) : (
-              <div className="text-gray-500 text-center">
-                {isPreviewMode ? (
-                  'Loading...'
-                ) : selectedItem ? (
-                  <div>
-                    <div className="text-lg mb-2">Ready to preview</div>
-                    <div className="text-sm">Press "Play from Selected" or "Play from Start" to begin</div>
-                  </div>
-                ) : (
-                  'Select a media item'
-                )}
-              </div>
-            )}
-            
-            {/* Caption Overlay */}
-            {currentItem && currentItem.showCaption && currentItem.caption && (
-              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-75 px-4 py-2 rounded">
-                <span className="text-white text-lg">{currentItem.caption}</span>
-              </div>
-            )}
+  <div className="flex-1 flex items-center justify-center bg-black min-h-0">
+  <div 
+    className="relative bg-black"
+    style={{
+      aspectRatio: aspectRatio.replace(':', '/'),
+      maxWidth: '100%',
+      maxHeight: '100%'
+    }}
+  >
+    {videoSrc ? (
+      <video
+        ref={videoRef}
+        className="w-full h-full object-contain"
+        src={videoSrc}
+        onTimeUpdate={isPreviewMode ? handleVideoTimeUpdate : undefined}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+      />
+    ) : imageSrc ? (
+      <img 
+        ref={imageRef}
+        src={imageSrc} 
+        alt={currentItem?.filename}
+        className="w-full h-full object-contain"
+      />
+    ) : (
+      <div className="text-gray-500 text-center absolute inset-0 flex items-center justify-center">
+        {isPreviewMode ? (
+          'Loading...'
+        ) : selectedItem ? (
+          <div>
+            <div className="text-lg mb-2">Ready to preview</div>
+            <div className="text-sm">Press "Play from Selected" or "Play from Start" to begin</div>
           </div>
+        ) : (
+          'Select a media item'
+        )}
+      </div>
+    )}
+    
+    {/* Caption Overlay - Now constrained within aspect ratio box */}
+    {currentItem && currentItem.showCaption && currentItem.caption && (
+      <div className={getCaptionPositionClass()} style={getCaptionStyle()}>
+        {currentItem.caption}
+      </div>
+    )}
+  </div>
+</div>
 
           {/* Timeline */}
           <div className="px-3 py-2 bg-gray-900 flex-shrink-0 border-t border-gray-700">

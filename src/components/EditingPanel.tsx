@@ -6,11 +6,13 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 
 interface EditingPanelProps {
   selectedItem: MediaItem | null;
+  aspectRatio: string;
   onClipsChange: (clips: ClipRange[]) => void;
 }
 
 export default function EditingPanel({ 
   selectedItem, 
+  aspectRatio,
   onClipsChange
 }: EditingPanelProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -314,17 +316,26 @@ export default function EditingPanel({
         </div>
         <div className="flex-1 flex min-h-0">
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex-1 flex items-center justify-center bg-black min-h-0">
-              {imageSrc ? (
-                <img 
-                  src={imageSrc} 
-                  alt={selectedItem.filename}
-                  className="max-w-full max-h-full object-contain"
-                />
-              ) : (
-                <div className="text-gray-500">Loading image...</div>
-              )}
-            </div>
+<div className="flex-1 flex items-center justify-center bg-black min-h-0">
+  <div 
+    className="relative bg-black"
+    style={{
+      aspectRatio: aspectRatio.replace(':', '/'),
+      maxWidth: '100%',
+      maxHeight: '100%'
+    }}
+  >
+    {imageSrc ? (
+      <img 
+        src={imageSrc} 
+        alt={selectedItem.filename}
+        className="w-full h-full object-contain"
+      />
+    ) : (
+      <div className="text-gray-500">Loading image...</div>
+    )}
+  </div>
+</div>
           </div>
         </div>
         <div className="p-2 text-center text-xs text-gray-500 border-t border-gray-700 flex-shrink-0">
@@ -354,22 +365,31 @@ export default function EditingPanel({
         {/* Video Player */}
         <div className="flex-1 flex flex-col min-h-0">
           <div 
-            className="flex-1 flex items-center justify-center bg-black min-h-0"
-            onContextMenu={handleContextMenu}
-          >
-            {videoSrc ? (
-              <video
-                ref={videoRef}
-                className="max-w-full max-h-full object-contain"
-                src={videoSrc}
-                onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-              />
-            ) : (
-              <div className="text-gray-500">Loading video...</div>
-            )}
-          </div>
+  className="flex-1 flex items-center justify-center bg-black min-h-0"
+  onContextMenu={handleContextMenu}
+>
+  <div 
+    className="relative bg-black"
+    style={{
+      aspectRatio: aspectRatio.replace(':', '/'),
+      maxWidth: '100%',
+      maxHeight: '100%'
+    }}
+  >
+    {videoSrc ? (
+      <video
+        ref={videoRef}
+        className="w-full h-full object-contain"
+        src={videoSrc}
+        onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+      />
+    ) : (
+      <div className="text-gray-500">Loading video...</div>
+    )}
+  </div>
+</div>
 
           {/* Timeline with markers */}
           <div 

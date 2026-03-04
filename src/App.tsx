@@ -6,6 +6,8 @@ import { MediaItem } from './types';
 import MediaListPanel from './components/MediaListPanel';
 import PreviewPanel from './components/PreviewPanel';
 import EditingPanel from './components/EditingPanel';
+import CaptionSettingsModal, { CaptionSettings, DEFAULT_CAPTION_SETTINGS } from './components/Captionsettingsmodal';
+import AspectRatioModal from './components/AspectRatioModal';
 
 function App() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
@@ -15,10 +17,15 @@ function App() {
   const [splitPosition, setSplitPosition] = useState(50); // 50% split
   const [isDragging, setIsDragging] = useState(false);
   const [showFileMenu, setShowFileMenu] = useState(false);
+  const [showEditMenu, setShowEditMenu] = useState(false);
+  const [showCaptionSettings, setShowCaptionSettings] = useState(false);
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [recentProjects, setRecentProjects] = useState<string[]>([]);
+  const [captionSettings, setCaptionSettings] = useState<CaptionSettings>(DEFAULT_CAPTION_SETTINGS);
+  const [aspectRatio, setAspectRatio] = useState<string>('16:9');
+  const [showAspectRatioModal, setShowAspectRatioModal] = useState(false);
 
   const selectedItem = mediaItems.find(item => item.id === selectedItemId) || null;
 
@@ -60,11 +67,14 @@ function App() {
 
   // Add project to recent list
   const addToRecentProjects = (path: string) => {
+    console.log('Adding to recent projects:', path);
     setRecentProjects(prev => {
       // Remove if already exists
       const filtered = prev.filter(p => p !== path);
       // Add to front, keep max 5
-      return [path, ...filtered].slice(0, 5);
+      const newRecents = [path, ...filtered].slice(0, 5);
+      console.log('New recent projects list:', newRecents);
+      return newRecents;
     });
   };
 
@@ -141,6 +151,8 @@ function App() {
         })),
         outputFormat,
         defaultPhotoDuration,
+        captionSettings,
+        aspectRatio,
         splitPosition,
         selectedItemId
       };
@@ -167,17 +179,19 @@ function App() {
 
       if (!filePath) return; // User cancelled
 
-      const projectData = {
-        version: '1.0',
-        mediaItems: mediaItems.map(item => ({
-          ...item,
-          dateCreated: item.dateCreated.toISOString()
-        })),
-        outputFormat,
-        defaultPhotoDuration,
-        splitPosition,
-        selectedItemId
-      };
+    const projectData = {
+      version: '1.0',
+      mediaItems: mediaItems.map(item => ({
+        ...item,
+        dateCreated: item.dateCreated.toISOString()
+      })),
+      outputFormat,
+      defaultPhotoDuration,
+      captionSettings,
+      aspectRatio,
+      splitPosition,
+      selectedItemId
+    };
 
       await writeTextFile(filePath, JSON.stringify(projectData, null, 2));
       setProjectPath(filePath);
@@ -209,6 +223,8 @@ function App() {
       setMediaItems(restoredItems);
       setOutputFormat(projectData.outputFormat || 'MP4');
       setDefaultPhotoDuration(projectData.defaultPhotoDuration || 3);
+      setCaptionSettings(projectData.captionSettings || DEFAULT_CAPTION_SETTINGS);
+      setAspectRatio(projectData.aspectRatio || '16:9');
       setSplitPosition(projectData.splitPosition || 50);
       setSelectedItemId(projectData.selectedItemId || null);
       setProjectPath(filePath);
@@ -253,6 +269,8 @@ function App() {
       setMediaItems(restoredItems);
       setOutputFormat(projectData.outputFormat || 'MP4');
       setDefaultPhotoDuration(projectData.defaultPhotoDuration || 3);
+      setCaptionSettings(projectData.captionSettings || DEFAULT_CAPTION_SETTINGS);
+      setAspectRatio(projectData.aspectRatio || '16:9');
       setSplitPosition(projectData.splitPosition || 50);
       setSelectedItemId(projectData.selectedItemId || null);
       setProjectPath(filePathStr);
@@ -390,7 +408,42 @@ function App() {
             </>
           )}
         </div>
-        <button className="hover:bg-gray-700 px-3 py-1 rounded">Edit</button>
+        <div className="relative">
+          <button 
+            onClick={() => setShowEditMenu(!showEditMenu)}
+            className="hover:bg-gray-700 px-3 py-1 rounded"
+          >
+            Edit
+          </button>
+          {showEditMenu && (
+            <>
+              <div 
+                className="fixed inset-0 z-10" 
+                onClick={() => setShowEditMenu(false)}
+              />
+              <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-600 rounded shadow-lg py-1 z-20 min-w-40">
+                <button
+                  onClick={() => {
+                    setShowAspectRatioModal(true);
+                    setShowEditMenu(false);
+                  }}
+                  className="w-full px-4 py-2 text-left hover:bg-gray-700 text-sm"
+                >
+                  Aspect Ratio...
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCaptionSettings(true);
+                    setShowEditMenu(false);
+                  }}
+                  className="w-full px-4 py-2 text-left hover:bg-gray-700 text-sm"
+                >
+                  Caption Settings...
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         <button className="hover:bg-gray-700 px-3 py-1 rounded">View</button>
         <button className="hover:bg-gray-700 px-3 py-1 rounded">Help</button>
       </div>
@@ -482,6 +535,7 @@ function App() {
           <div style={{ height: `${splitPosition}%` }}>
             <EditingPanel
               selectedItem={selectedItem}
+              aspectRatio={aspectRatio}
               onClipsChange={handleClipsChange}
             />
           </div>
@@ -500,12 +554,37 @@ function App() {
               selectedItem={selectedItem} 
               mediaItems={mediaItems}
               defaultPhotoDuration={defaultPhotoDuration}
+              captionSettings={captionSettings}
+              aspectRatio={aspectRatio}
               onCurrentItemChange={handleSelectItem}
               onPreviewModeChange={setIsPreviewMode}
             />
           </div>
         </div>
       </div>
+
+      {/* Caption Settings Modal */}
+      {showCaptionSettings && (
+        <CaptionSettingsModal
+          settings={captionSettings}
+          onSave={(newSettings) => {
+            setCaptionSettings(newSettings);
+            setHasUnsavedChanges(true);
+          }}
+          onClose={() => setShowCaptionSettings(false)}
+        />
+      )}
+      {/* Aspect Ratio Modal */}
+      {showAspectRatioModal && (
+        <AspectRatioModal
+          currentRatio={aspectRatio}
+          onSave={(newRatio) => {
+            setAspectRatio(newRatio);
+            setHasUnsavedChanges(true);
+          }}
+          onClose={() => setShowAspectRatioModal(false)}
+        />
+      )}
     </div>
   );
 }
