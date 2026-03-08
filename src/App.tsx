@@ -8,6 +8,7 @@ import PreviewPanel from './components/PreviewPanel';
 import EditingPanel from './components/EditingPanel';
 import CaptionSettingsModal, { CaptionSettings, DEFAULT_CAPTION_SETTINGS } from './components/Captionsettingsmodal';
 import AspectRatioModal from './components/AspectRatioModal';
+import { AudioItem } from './components/AudioTrackList';
 
 function App() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
@@ -28,6 +29,8 @@ function App() {
   const [showAspectRatioModal, setShowAspectRatioModal] = useState(false);
 
   const selectedItem = mediaItems.find(item => item.id === selectedItemId) || null;
+
+const [audioTracks, setAudioTracks] = useState<AudioItem[]>([]);
 
   // Load recent projects from Tauri store on mount
   useEffect(() => {
@@ -154,7 +157,8 @@ function App() {
         captionSettings,
         aspectRatio,
         splitPosition,
-        selectedItemId
+        selectedItemId,
+  audioTracks
       };
 
       await writeTextFile(filePath, JSON.stringify(projectData, null, 2));
@@ -190,7 +194,8 @@ function App() {
       captionSettings,
       aspectRatio,
       splitPosition,
-      selectedItemId
+      selectedItemId,
+  audioTracks
     };
 
       await writeTextFile(filePath, JSON.stringify(projectData, null, 2));
@@ -227,6 +232,7 @@ function App() {
       setAspectRatio(projectData.aspectRatio || '16:9');
       setSplitPosition(projectData.splitPosition || 50);
       setSelectedItemId(projectData.selectedItemId || null);
+      setAudioTracks(projectData.audioTracks || []);
       setProjectPath(filePath);
       setHasUnsavedChanges(false);
       addToRecentProjects(filePath);
@@ -276,6 +282,7 @@ function App() {
       setProjectPath(filePathStr);
       setHasUnsavedChanges(false);
       addToRecentProjects(filePathStr);
+      setAudioTracks(projectData.audioTracks || []);
     } catch (error) {
       console.error('Error loading project:', error);
       alert(`Failed to load project: ${error}`);
@@ -556,6 +563,8 @@ function App() {
               defaultPhotoDuration={defaultPhotoDuration}
               captionSettings={captionSettings}
               aspectRatio={aspectRatio}
+                audioTracks={audioTracks}
+              onAudioTracksChange={setAudioTracks}
               onCurrentItemChange={handleSelectItem}
               onPreviewModeChange={setIsPreviewMode}
             />

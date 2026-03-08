@@ -1,10 +1,10 @@
 // src/components/PreviewPanel.tsx
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import { MediaItem } from '../types';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { CaptionSettings } from './Captionsettingsmodal';
 import AudioTrackList, { AudioItem } from './AudioTrackList';
+import { usePreviewPlayback } from '../hooks/usePreviewPlayback';
 
 interface PreviewPanelProps {
   selectedItem: MediaItem | null;
@@ -12,6 +12,8 @@ interface PreviewPanelProps {
   defaultPhotoDuration: number;
   captionSettings: CaptionSettings;
   aspectRatio: string;
+    audioTracks: AudioItem[];
+  onAudioTracksChange: (tracks: AudioItem[]) => void;
   onCurrentItemChange: (itemId: string) => void;
   onPreviewModeChange: (isPreview: boolean) => void;
 }
@@ -22,286 +24,39 @@ export default function PreviewPanel({
   defaultPhotoDuration,
   captionSettings,
   aspectRatio,
+    audioTracks,
+  onAudioTracksChange,
   onCurrentItemChange,
   onPreviewModeChange
 }: PreviewPanelProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
-  const photoTimerRef = useRef<number | null>(null);
-  const isAdvancingRef = useRef<boolean>(false);
-  const isPreviewModeRef = useRef<boolean>(false);
-  const playlistRef = useRef<MediaItem[]>([]);
   
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [totalDuration, setTotalDuration] = useState(0);
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
-  const [playlist, setPlaylist] = useState<MediaItem[]>([]);
-  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
-  const [currentClipIndex, setCurrentClipIndex] = useState(0);
-  const [accumulatedTime, setAccumulatedTime] = useState(0);
   const [videoSrc, setVideoSrc] = useState<string>('');
   const [imageSrc, setImageSrc] = useState<string>('');
-  const [audioItems, setAudioItems] = useState<AudioItem[]>([]);
-
-  const buildPlaylist = (fromStart: boolean) => {
-    const startIndex = fromStart ? 0 : mediaItems.findIndex(item => item.id === selectedItem?.id);
-    if (startIndex === -1) return [];
-    return mediaItems.slice(startIndex);
-  };
-
-  const calculateTotalDuration = (items: MediaItem[]) => {
-    return items.reduce((total, item) => {
-      if (item.type === 'video') {
-        if (item.clips && item.clips.length > 0) {
-          return total + item.clips.reduce((sum, clip) => sum + (clip.end - clip.start), 0);
-        }
-        return total + (item.duration || 0);
-      } else {
-        return total + (item.photoDuration ?? defaultPhotoDuration);
-      }
-    }, 0);
-  };
-
-  const getCurrentItemDuration = (item: MediaItem) => {
-    if (item.type === 'video') {
-      if (item.clips && item.clips.length > 0) {
-        return item.clips.reduce((sum, clip) => sum + (clip.end - clip.start), 0);
-      }
-      return item.duration || 0;
-    } else {
-      return item.photoDuration ?? defaultPhotoDuration;
-    }
-  };
-
-  const handleStartPreview = (fromStart: boolean) => {
-    const newPlaylist = buildPlaylist(fromStart);
-    if (newPlaylist.length === 0) return;
-
-    console.log(`Starting preview with ${newPlaylist.length} items`);
-    
-    setPlaylist(newPlaylist);
-    playlistRef.current = newPlaylist;
-    setCurrentMediaIndex(0);
-    setCurrentClipIndex(0);
-    setAccumulatedTime(0);
-    setIsPreviewMode(true);
-    isPreviewModeRef.current = true;
-    onPreviewModeChange(true);
-    setTotalDuration(calculateTotalDuration(newPlaylist));
-    loadMediaAtIndex(newPlaylist, 0);
-  };
-
-  const loadMediaAtIndex = async (playlistItems: MediaItem[], index: number) => {
-    if (index >= playlistItems.length) {
-      handleStopPreview();
-      return;
-    }
-
-    const item = playlistItems[index];
-    
-    if (photoTimerRef.current !== null) {
-      clearTimeout(photoTimerRef.current);
-      photoTimerRef.current = null;
-    }
-
-    onCurrentItemChange(item.id);
-
-    if (item.type === 'video') {
-      setImageSrc('');
-      const convertedSrc = convertFileSrc(item.filepath);
-      setVideoSrc(convertedSrc);
-      setCurrentClipIndex(0);
-      
-      setTimeout(() => {
-        if (videoRef.current) {
-          if (item.clips && item.clips.length > 0) {
-            videoRef.current.currentTime = item.clips[0].start;
-          } else {
-            videoRef.current.currentTime = 0;
-          }
-          videoRef.current.play().catch(err => console.error('Play error:', err));
-          setIsPlaying(true);
-        }
-      }, 100);
-    } else {
-      setVideoSrc('');
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.src = '';
-      }
-      
-      const { invoke } = await import('@tauri-apps/api/core');
-      try {
-        const fullImageSrc = await invoke<string>('read_image_as_base64', { 
-          imagePath: item.filepath 
-        });
-        setImageSrc(fullImageSrc);
-        setIsPlaying(true);
-
-        const duration = (item.photoDuration ?? defaultPhotoDuration) * 1000;
-        console.log(`Photo loaded: ${item.filename}, duration: ${duration}ms (${duration/1000}s)`);
-        
-        photoTimerRef.current = window.setTimeout(() => {
-          console.log(`Photo timer fired for ${item.filename}, preview mode: ${isPreviewModeRef.current}`);
-          
-          if (!isPreviewModeRef.current) {
-            console.log('Preview stopped, ignoring timer');
-            photoTimerRef.current = null;
-            return;
-          }
-          
-          photoTimerRef.current = null;
-          advanceToNextItem();
-        }, duration);
-      } catch (error) {
-        console.error('Error loading image:', error);
-        advanceToNextItem();
-      }
-    }
-  };
-
-  const advanceToNextItem = () => {
-    if (!isPreviewModeRef.current) {
-      console.log('Preview mode ref is false, stopping advance');
-      return;
-    }
-    
-    if (isAdvancingRef.current) {
-      console.log('Already advancing, skipping duplicate call');
-      return;
-    }
-
-    isAdvancingRef.current = true;
-    console.log('Advancing to next item...');
-
-    setCurrentMediaIndex(prev => {
-      const nextIndex = prev + 1;
-      const currentPlaylist = playlistRef.current;
-      console.log(`Current: ${prev}, Next: ${nextIndex}, Playlist length: ${currentPlaylist.length}`);
-      
-      if (nextIndex >= currentPlaylist.length) {
-        console.log('End of playlist reached');
-        isAdvancingRef.current = false;
-        setTimeout(() => handleStopPreview(), 0);
-        return prev;
-      }
-      
-      const currentItem = currentPlaylist[prev];
-      if (currentItem) {
-        const itemDuration = getCurrentItemDuration(currentItem);
-        setAccumulatedTime(accTime => accTime + itemDuration);
-      }
-      
-      setTimeout(() => {
-        if (!isPreviewModeRef.current) {
-          console.log('Preview stopped during advance, aborting load');
-          isAdvancingRef.current = false;
-          return;
-        }
-        
-        console.log(`Loading media at index ${nextIndex}`);
-        loadMediaAtIndex(playlistRef.current, nextIndex);
-        isAdvancingRef.current = false;
-      }, 100);
-      
-      return nextIndex;
-    });
-  };
-
-  const moveToNextMedia = () => {
-    if (!isPreviewMode) return;
-
-    if (photoTimerRef.current !== null) {
-      clearTimeout(photoTimerRef.current);
-      photoTimerRef.current = null;
-    }
-
-    advanceToNextItem();
-  };
-
-  const handleVideoTimeUpdate = () => {
-    if (!videoRef.current || !isPreviewMode) return;
-
-    const currentItem = playlist[currentMediaIndex];
-    if (currentItem?.type !== 'video') return;
-
-    const previousDuration = playlist.slice(0, currentMediaIndex).reduce((sum, item) => {
-      return sum + getCurrentItemDuration(item);
-    }, 0);
-
-    if (currentItem.clips && currentItem.clips.length > 0) {
-      const clip = currentItem.clips[currentClipIndex];
-      if (clip) {
-        const clipElapsed = videoRef.current.currentTime - clip.start;
-        const clipsBeforeCurrent = currentItem.clips.slice(0, currentClipIndex).reduce((sum, c) => {
-          return sum + (c.end - c.start);
-        }, 0);
-        setCurrentTime(previousDuration + clipsBeforeCurrent + clipElapsed);
-
-        if (videoRef.current.currentTime >= clip.end) {
-          if (currentClipIndex < currentItem.clips.length - 1) {
-            setCurrentClipIndex(currentClipIndex + 1);
-            videoRef.current.currentTime = currentItem.clips[currentClipIndex + 1].start;
-          } else {
-            moveToNextMedia();
-          }
-        }
-      }
-    } else {
-      setCurrentTime(previousDuration + videoRef.current.currentTime);
-      
-      if (videoRef.current.currentTime >= (videoRef.current.duration - 0.1)) {
-        moveToNextMedia();
-      }
-    }
-  };
-
-  const handleStopPreview = () => {
-    console.log('=== STOPPING PREVIEW ===');
-    
-    isPreviewModeRef.current = false;
-    isAdvancingRef.current = false;
-    playlistRef.current = [];
-    
-    if (photoTimerRef.current !== null) {
-      console.log('Clearing photo timer');
-      clearTimeout(photoTimerRef.current);
-      photoTimerRef.current = null;
-    }
-    
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.src = '';
-    }
-
-    setIsPreviewMode(false);
-    onPreviewModeChange(false);
-    setIsPlaying(false);
-    setPlaylist([]);
-    setCurrentMediaIndex(0);
-    setCurrentClipIndex(0);
-    setAccumulatedTime(0);
-    setCurrentTime(0);
-    setVideoSrc('');
-    setImageSrc('');
-
-    console.log('Preview stopped, all flags cleared');
-
-    if (selectedItem) {
-      setTimeout(() => {
-        onCurrentItemChange(selectedItem.id);
-      }, 100);
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (photoTimerRef.current) {
-        clearTimeout(photoTimerRef.current);
-      }
-    };
-  }, []);
+  
+  const {
+    isPlaying,
+    setIsPlaying,
+    currentTime,
+    totalDuration,
+    isPreviewMode,
+    playlist,
+    currentMediaIndex,
+    handleStartPreview,
+    handleStopPreview,
+    handleVideoTimeUpdate
+  } = usePreviewPlayback({
+    mediaItems,
+    selectedItem,
+    defaultPhotoDuration,
+    onCurrentItemChange,
+    onPreviewModeChange,
+    videoRef,
+    imageRef,
+    setVideoSrc,
+    setImageSrc
+  });
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -311,24 +66,15 @@ export default function PreviewPanel({
 
   const getCaptionPositionClass = () => {
     const base = 'absolute px-4 py-2 rounded';
-    
     switch (captionSettings.position) {
-      case 'bottom-left':
-        return `${base} bottom-4 left-4`;
-      case 'bottom-center':
-        return `${base} bottom-4 left-1/2 transform -translate-x-1/2`;
-      case 'bottom-right':
-        return `${base} bottom-4 right-4`;
-      case 'top-left':
-        return `${base} top-4 left-4`;
-      case 'top-center':
-        return `${base} top-4 left-1/2 transform -translate-x-1/2`;
-      case 'top-right':
-        return `${base} top-4 right-4`;
-      case 'center':
-        return `${base} top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2`;
-      default:
-        return `${base} bottom-4 left-1/2 transform -translate-x-1/2`;
+      case 'bottom-left': return `${base} bottom-4 left-4`;
+      case 'bottom-center': return `${base} bottom-4 left-1/2 transform -translate-x-1/2`;
+      case 'bottom-right': return `${base} bottom-4 right-4`;
+      case 'top-left': return `${base} top-4 left-4`;
+      case 'top-center': return `${base} top-4 left-1/2 transform -translate-x-1/2`;
+      case 'top-right': return `${base} top-4 right-4`;
+      case 'center': return `${base} top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2`;
+      default: return `${base} bottom-4 left-1/2 transform -translate-x-1/2`;
     }
   };
 
@@ -353,9 +99,7 @@ export default function PreviewPanel({
   if (!selectedItem && mediaItems.length === 0) {
     return (
       <div className="h-full bg-gray-850 flex flex-col">
-        <div className="p-3 border-b border-gray-700 font-semibold text-sm">
-          Preview Panel
-        </div>
+        <div className="p-3 border-b border-gray-700 font-semibold text-sm">Preview Panel</div>
         <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
           Add media items to preview
         </div>
@@ -374,10 +118,7 @@ export default function PreviewPanel({
         </span>
         <div className="flex gap-2">
           {isPreviewMode ? (
-            <button
-              onClick={handleStopPreview}
-              className="px-3 py-1 rounded text-xs bg-orange-600 hover:bg-orange-700"
-            >
+            <button onClick={handleStopPreview} className="px-3 py-1 rounded text-xs bg-orange-600 hover:bg-orange-700">
               ⏹ Stop Preview
             </button>
           ) : (
@@ -402,17 +143,9 @@ export default function PreviewPanel({
       </div>
       
       <div className="flex-1 flex min-h-0">
-        {/* Video/Image Display */}
         <div className="flex-1 flex flex-col min-h-0">
           <div className="flex-1 flex items-center justify-center bg-black min-h-0">
-            <div 
-              className="relative bg-black"
-              style={{
-                aspectRatio: aspectRatio.replace(':', '/'),
-                maxWidth: '100%',
-                maxHeight: '100%'
-              }}
-            >
+            <div className="relative bg-black" style={{ aspectRatio: aspectRatio.replace(':', '/'), maxWidth: '100%', maxHeight: '100%' }}>
               {videoSrc ? (
                 <video
                   ref={videoRef}
@@ -423,24 +156,15 @@ export default function PreviewPanel({
                   onPause={() => setIsPlaying(false)}
                 />
               ) : imageSrc ? (
-                <img 
-                  ref={imageRef}
-                  src={imageSrc} 
-                  alt={currentItem?.filename}
-                  className="w-full h-full object-contain"
-                />
+                <img ref={imageRef} src={imageSrc} alt={currentItem?.filename} className="w-full h-full object-contain" />
               ) : (
                 <div className="text-gray-500 text-center absolute inset-0 flex items-center justify-center">
-                  {isPreviewMode ? (
-                    'Loading...'
-                  ) : selectedItem ? (
+                  {isPreviewMode ? 'Loading...' : selectedItem ? (
                     <div>
                       <div className="text-lg mb-2">Ready to preview</div>
                       <div className="text-sm">Press "Play from Selected" or "Play from Start" to begin</div>
                     </div>
-                  ) : (
-                    'Select a media item'
-                  )}
+                  ) : 'Select a media item'}
                 </div>
               )}
               
@@ -452,19 +176,16 @@ export default function PreviewPanel({
             </div>
           </div>
 
-          {/* Timeline */}
           <div className="px-3 py-2 bg-gray-900 flex-shrink-0 border-t border-gray-700">
             <div className="text-xs text-gray-400 mb-1 flex justify-between">
               <span>{formatTime(currentTime)}</span>
-              <span className="text-[10px]">
-                {isPreviewMode ? 'Full Preview Mode' : 'Single Item View'}
-              </span>
-              <span>{formatTime(isPreviewMode ? totalDuration : (selectedItem?.duration || 0))}</span>
+              <span className="text-[10px]">{isPreviewMode ? 'Full Timeline' : 'Single Item View'}</span>
+              <span>{formatTime(totalDuration || (selectedItem?.duration || 0))}</span>
             </div>
             <input
               type="range"
               min="0"
-              max={isPreviewMode ? totalDuration : (selectedItem?.duration || 0)}
+              max={totalDuration || (selectedItem?.duration || 0)}
               step="0.01"
               value={currentTime}
               disabled={isPreviewMode}
@@ -472,7 +193,6 @@ export default function PreviewPanel({
             />
           </div>
 
-          {/* Controls */}
           <div className="p-2 flex items-center justify-center gap-2 bg-gray-900 flex-shrink-0 border-t border-gray-700">
             {!isPreviewMode && (
               <span className="text-xs text-gray-400">
@@ -482,8 +202,7 @@ export default function PreviewPanel({
           </div>
         </div>
 
-        {/* Audio List Panel */}
-        <AudioTrackList audioItems={audioItems} onAudioItemsChange={setAudioItems} />
+        <AudioTrackList audioItems={audioTracks} onAudioItemsChange={onAudioTracksChange} />
       </div>
     </div>
   );
