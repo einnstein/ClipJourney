@@ -3,7 +3,6 @@
 import { useRef, useState } from 'react';
 import { MediaItem } from '../types';
 import { CaptionSettings } from './Captionsettingsmodal';
-import AudioTrackList, { AudioItem } from './AudioTrackList';
 import { usePreviewPlayback } from '../hooks/usePreviewPlayback';
 
 interface PreviewPanelProps {
@@ -12,8 +11,6 @@ interface PreviewPanelProps {
   defaultPhotoDuration: number;
   captionSettings: CaptionSettings;
   aspectRatio: string;
-    audioTracks: AudioItem[];
-  onAudioTracksChange: (tracks: AudioItem[]) => void;
   onCurrentItemChange: (itemId: string) => void;
   onPreviewModeChange: (isPreview: boolean) => void;
 }
@@ -24,8 +21,6 @@ export default function PreviewPanel({
   defaultPhotoDuration,
   captionSettings,
   aspectRatio,
-    audioTracks,
-  onAudioTracksChange,
   onCurrentItemChange,
   onPreviewModeChange
 }: PreviewPanelProps) {
@@ -34,7 +29,7 @@ export default function PreviewPanel({
   
   const [videoSrc, setVideoSrc] = useState<string>('');
   const [imageSrc, setImageSrc] = useState<string>('');
-  
+
   const {
     isPlaying,
     setIsPlaying,
@@ -142,67 +137,63 @@ export default function PreviewPanel({
         </div>
       </div>
       
-      <div className="flex-1 flex min-h-0">
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 flex items-center justify-center bg-black min-h-0">
-            <div className="relative bg-black" style={{ aspectRatio: aspectRatio.replace(':', '/'), maxWidth: '100%', maxHeight: '100%' }}>
-              {videoSrc ? (
-                <video
-                  ref={videoRef}
-                  className="w-full h-full object-contain"
-                  src={videoSrc}
-                  onTimeUpdate={isPreviewMode ? handleVideoTimeUpdate : undefined}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                />
-              ) : imageSrc ? (
-                <img ref={imageRef} src={imageSrc} alt={currentItem?.filename} className="w-full h-full object-contain" />
-              ) : (
-                <div className="text-gray-500 text-center absolute inset-0 flex items-center justify-center">
-                  {isPreviewMode ? 'Loading...' : selectedItem ? (
-                    <div>
-                      <div className="text-lg mb-2">Ready to preview</div>
-                      <div className="text-sm">Press "Play from Selected" or "Play from Start" to begin</div>
-                    </div>
-                  ) : 'Select a media item'}
-                </div>
-              )}
-              
-              {currentItem && currentItem.showCaption && currentItem.caption && (
-                <div className={getCaptionPositionClass()} style={getCaptionStyle()}>
-                  {currentItem.caption}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="px-3 py-2 bg-gray-900 flex-shrink-0 border-t border-gray-700">
-            <div className="text-xs text-gray-400 mb-1 flex justify-between">
-              <span>{formatTime(currentTime)}</span>
-              <span className="text-[10px]">{isPreviewMode ? 'Full Timeline' : 'Single Item View'}</span>
-              <span>{formatTime(totalDuration || (selectedItem?.duration || 0))}</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max={totalDuration || (selectedItem?.duration || 0)}
-              step="0.01"
-              value={currentTime}
-              disabled={isPreviewMode}
-              className="w-full cursor-pointer disabled:opacity-50"
+      <div className="flex-1 flex items-center justify-center bg-black min-h-0">
+        <div className="relative bg-black" style={{ aspectRatio: aspectRatio.replace(':', '/'), maxWidth: '100%', maxHeight: '100%' }}>
+          {videoSrc ? (
+            <video
+              ref={videoRef}
+              className="w-full h-full object-contain"
+              src={videoSrc}
+              onTimeUpdate={isPreviewMode ? handleVideoTimeUpdate : undefined}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
             />
-          </div>
-
-          <div className="p-2 flex items-center justify-center gap-2 bg-gray-900 flex-shrink-0 border-t border-gray-700">
-            {!isPreviewMode && (
-              <span className="text-xs text-gray-400">
-                Use "Play from Selected" or "Play from Start" to preview full sequence
-              </span>
-            )}
-          </div>
+          ) : imageSrc ? (
+            <img ref={imageRef} src={imageSrc} alt={currentItem?.filename} className="w-full h-full object-contain" />
+          ) : (
+            <div className="text-gray-500 text-center absolute inset-0 flex items-center justify-center">
+              {isPreviewMode ? 'Loading...' : selectedItem ? (
+                <div>
+                  <div className="text-lg mb-2">Ready to preview</div>
+                  <div className="text-sm">Press "Play from Selected" or "Play from Start" to begin</div>
+                </div>
+              ) : 'Select a media item'}
+            </div>
+          )}
+          
+          {currentItem && currentItem.showCaption && currentItem.caption && (
+            <div className={getCaptionPositionClass()} style={getCaptionStyle()}>
+              {currentItem.caption}
+            </div>
+          )}
         </div>
+      </div>
 
-        <AudioTrackList audioItems={audioTracks} onAudioItemsChange={onAudioTracksChange} />
+      {/* Timeline */}
+      <div className="px-3 py-2 bg-gray-900 flex-shrink-0 border-t border-gray-700">
+        <div className="text-xs text-gray-400 mb-1 flex justify-between">
+          <span>{formatTime(currentTime)}</span>
+          <span className="text-[10px]">{isPreviewMode ? 'Full Timeline' : 'Single Item View'}</span>
+          <span>{formatTime(totalDuration || (selectedItem?.duration || 0))}</span>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max={totalDuration || (selectedItem?.duration || 0)}
+          step="0.01"
+          value={currentTime}
+          disabled={isPreviewMode}
+          className="w-full cursor-pointer disabled:opacity-50"
+        />
+      </div>
+
+      {/* Controls */}
+      <div className="p-2 flex items-center justify-center gap-2 bg-gray-900 flex-shrink-0 border-t border-gray-700">
+        {!isPreviewMode && (
+          <span className="text-xs text-gray-400">
+            Use "Play from Selected" or "Play from Start" to preview full sequence
+          </span>
+        )}
       </div>
     </div>
   );
