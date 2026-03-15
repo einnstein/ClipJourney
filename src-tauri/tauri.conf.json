@@ -19,10 +19,20 @@
     ],
     "security": {
       "csp": null,
+      "dangerousDisableAssetCspModification": true,
       "assetProtocol": {
         "enable": true,
         "scope": ["**"]
-      }
+      },
+      "capabilities": [
+        "default",
+        "shell-scope"
+      ]
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
     }
   },
   "bundle": {

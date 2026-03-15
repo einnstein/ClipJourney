@@ -161,20 +161,45 @@ fn exclude_file(file_path: String) -> Result<String, String> {
     Ok(new_path.to_str().ok_or("Invalid path")?.to_string())
 }
 
+// ADD THIS NEW COMMAND
+#[tauri::command]
+fn run_ffmpeg(args: Vec<String>) -> Result<String, String> {
+    println!("Running FFmpeg with args: {:?}", args);
+    
+    let output = Command::new("ffmpeg")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Failed to execute FFmpeg: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    
+    println!("FFmpeg stdout: {}", stdout);
+    println!("FFmpeg stderr: {}", stderr);
+
+    if output.status.success() {
+        Ok(format!("Success!\nStdout: {}\nStderr: {}", stdout, stderr))
+    } else {
+        Err(format!("FFmpeg failed with status: {}\nStderr: {}", output.status, stderr))
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())  // ADD THIS LINE
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             greet, 
             get_video_duration, 
             generate_thumbnail,
             read_image_as_base64,
             generate_timeline_thumbnails,
-            exclude_file
+            exclude_file,
+            run_ffmpeg  // ADD THIS
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

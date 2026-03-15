@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "shell-scope",
+  "description": "Shell scope for FFmpeg",
+  "windows": ["main"],
+  "permissions": [
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "ffmpeg",
+          "cmd": "ffmpeg",
+          "args": true
+        }
+      ]
+    }
+  ]
+}

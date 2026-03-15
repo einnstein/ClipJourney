@@ -8,6 +8,9 @@ import PreviewPanel from './components/PreviewPanel';
 import EditingPanel from './components/EditingPanel';
 import CaptionSettingsModal, { CaptionSettings, DEFAULT_CAPTION_SETTINGS } from './components/Captionsettingsmodal';
 import AspectRatioModal from './components/AspectRatioModal';
+import { generateProjectHash, createSnapshot, ProjectSnapshot } from './utils/projectHash';
+import ProgressModal from './components/ProgressModal';
+import { exists } from '@tauri-apps/plugin-fs';
 
 
 function App() {
@@ -27,6 +30,12 @@ function App() {
   const [captionSettings, setCaptionSettings] = useState<CaptionSettings>(DEFAULT_CAPTION_SETTINGS);
   const [aspectRatio, setAspectRatio] = useState<string>('16:9');
   const [showAspectRatioModal, setShowAspectRatioModal] = useState(false);
+const [showProgressModal, setShowProgressModal] = useState(false);
+const [progressMessage, setProgressMessage] = useState('');
+const [progressPercent, setProgressPercent] = useState<number | undefined>(undefined);
+const [projectSnapshot, setProjectSnapshot] = useState<ProjectSnapshot | null>(null);
+const [combinedVideoPath, setCombinedVideoPath] = useState<string | null>(null);
+
 
   const selectedItem = mediaItems.find(item => item.id === selectedItemId) || null;
 
@@ -162,6 +171,7 @@ function App() {
       setProjectPath(filePath);
       setHasUnsavedChanges(false);
       addToRecentProjects(filePath);
+      
     } catch (error) {
       console.error('Error saving project:', error);
       alert(`Failed to save project: ${error}`);
@@ -198,6 +208,7 @@ function App() {
       setProjectPath(filePath);
       setHasUnsavedChanges(false);
       addToRecentProjects(filePath);
+      
     } catch (error) {
       console.error('Error saving project:', error);
       alert(`Failed to save project: ${error}`);
@@ -231,6 +242,7 @@ function App() {
       setProjectPath(filePath);
       setHasUnsavedChanges(false);
       addToRecentProjects(filePath);
+      await loadProjectSnapshot(filePath);
     } catch (error) {
       console.error('Error loading recent project:', error);
       alert(`Failed to load project: ${error}`);
@@ -277,6 +289,7 @@ function App() {
       setProjectPath(filePathStr);
       setHasUnsavedChanges(false);
       addToRecentProjects(filePathStr);
+      await loadProjectSnapshot(filePathStr);
     } catch (error) {
       console.error('Error loading project:', error);
       alert(`Failed to load project: ${error}`);
@@ -326,6 +339,166 @@ function App() {
   const handleMouseUp = () => {
     setIsDragging(false);
   };
+
+// Load snapshot from project file
+const loadProjectSnapshot = async (projectFilePath: string) => {
+  try {
+    const snapshotPath = projectFilePath.replace('.cjproj', '_snapshot.json');
+    const snapshotExists = await exists(snapshotPath);
+    
+    if (snapshotExists) {
+      const content = await readTextFile(snapshotPath);
+      const snapshot: ProjectSnapshot = JSON.parse(content);
+      setProjectSnapshot(snapshot);
+      
+      // Check if combined video exists
+// Check if combined video exists AND is not empty
+const videoExists = await exists(snapshot.combinedVideoPath);
+if (videoExists) {
+  setCombinedVideoPath(snapshot.combinedVideoPath);
+} else {
+  // Video file doesn't exist anymore, clear the snapshot
+  setCombinedVideoPath(null);
+  setProjectSnapshot(null);
+}
+    }
+  } catch (error) {
+    console.error('Error loading snapshot:', error);
+  }
+};
+
+// Save snapshot after combining video
+const saveProjectSnapshot = async (snapshot: ProjectSnapshot) => {
+  try {
+    if (!projectPath) return;
+    
+    const snapshotPath = projectPath.replace('.cjproj', '_snapshot.json');
+    await writeTextFile(snapshotPath, JSON.stringify(snapshot, null, 2));
+    setProjectSnapshot(snapshot);
+  } catch (error) {
+    console.error('Error saving snapshot:', error);
+  }
+};
+
+// Check if video needs re-combining
+// Check if video needs re-combining
+const needsRecombining = async (): Promise<boolean> => {
+  const currentHash = generateProjectHash({
+    mediaItems,
+    captionSettings,
+    aspectRatio,
+    defaultPhotoDuration
+  });
+  
+  if (!projectSnapshot) {
+    console.log('No snapshot found - needs combining');
+    return true;
+  }
+  
+  if (projectSnapshot.projectHash !== currentHash) {
+    console.log('Hash mismatch - needs combining');
+    console.log('Current:', currentHash);
+    console.log('Saved:', projectSnapshot.projectHash);
+    return true;
+  }
+  
+  if (!combinedVideoPath) {
+    console.log('No combined video path - needs combining');
+    return true;
+  }
+  
+  // Actually check if the file exists on disk
+  const fileExists = await exists(combinedVideoPath);
+  if (!fileExists) {
+    console.log('Combined video file deleted - needs combining');
+    return true;
+  }
+  
+  console.log('No changes detected - can reuse combined video');
+  return false;
+};
+
+// Combine video using FFmpeg
+const combineVideo = async (): Promise<string> => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      setShowProgressModal(true);
+      setProgressMessage('Combining video clips with captions...');
+      setProgressPercent(0);
+      
+      // Generate combined video path
+      const combinedPath = projectPath!.replace('.cjproj', '_combined.mp4');
+      
+      // Import FFmpeg utility
+      const { combineVideo: ffmpegCombine } = await import('./utils/ffmpeg');
+      
+      // Combine video with FFmpeg
+      await ffmpegCombine({
+        mediaItems,
+        outputPath: combinedPath,
+        aspectRatio,
+        defaultPhotoDuration,
+        captionSettings,
+        onProgress: (percent) => {
+          setProgressPercent(percent);
+        }
+      });
+      
+      // Save snapshot
+      const currentHash = generateProjectHash({
+        mediaItems,
+        captionSettings,
+        aspectRatio,
+        defaultPhotoDuration
+      });
+      
+      const snapshot = createSnapshot(
+        currentHash,
+        combinedPath,
+        mediaItems.length,
+        editedLength
+      );
+      
+      await saveProjectSnapshot(snapshot);
+      setCombinedVideoPath(combinedPath);
+      
+      setShowProgressModal(false);
+      resolve(combinedPath);
+    } catch (error) {
+      setShowProgressModal(false);
+      reject(error);
+    }
+  });
+};
+
+// Handle Finalize & Export button click
+// Handle Finalize & Export button click
+const handleFinalizeAndExport = async () => {
+  if (!projectPath) {
+    alert('Please save your project first');
+    return;
+  }
+  
+  if (mediaItems.length === 0) {
+    alert('No media items to combine');
+    return;
+  }
+  
+  try {
+    if (await needsRecombining()) {  // ADD await HERE
+      // Re-combine video
+      setProgressMessage('Changes detected. Combining video clips...');
+      const videoPath = await combineVideo();
+      alert(`Video combined! Path: ${videoPath}\n\nFinalization window coming soon...`);
+    } else {
+      // Reuse existing combined video
+      alert(`Using existing combined video: ${combinedVideoPath}\n\nFinalization window coming soon...`);
+    }
+  } catch (error) {
+    console.error('Error in finalization:', error);
+    alert(`Error: ${error}`);
+  }
+};
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-900 text-white overflow-hidden">
@@ -507,9 +680,28 @@ function App() {
             </select>
           </div>
 
-          <button className="ml-auto px-4 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm">
-            Export Final Video
-          </button>
+<button 
+  onClick={handleFinalizeAndExport}
+  className="ml-auto px-4 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+>
+  Finalize & Export
+</button>
+<button 
+  onClick={async () => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const result = await invoke<string>('run_ffmpeg', { 
+        args: ['-version'] 
+      });
+      alert(`FFmpeg works!\n\n${result}`);
+    } catch (error) {
+      alert(`FFmpeg failed:\n${error}`);
+    }
+  }}
+  className="px-4 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm"
+>
+  Test FFmpeg Backend
+</button>
         </div>
       </div>
 
@@ -584,6 +776,15 @@ function App() {
             setHasUnsavedChanges(true);
           }}
           onClose={() => setShowAspectRatioModal(false)}
+        />
+        
+      )}
+      {/* Progress Modal */}
+      {showProgressModal && (
+        <ProgressModal
+          title="Processing Video"
+          message={progressMessage}
+          progress={progressPercent}
         />
       )}
     </div>
