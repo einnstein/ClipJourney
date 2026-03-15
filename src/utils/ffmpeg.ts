@@ -1,6 +1,7 @@
 // src/utils/ffmpeg.ts
 
 import { invoke } from '@tauri-apps/api/core';
+import { exists, mkdir, remove } from '@tauri-apps/plugin-fs';
 import { MediaItem } from '../types';
 import { CaptionSettings } from '../components/Captionsettingsmodal';
 
@@ -13,18 +14,72 @@ interface CombineVideoOptions {
   onProgress?: (percent: number) => void;
 }
 
+function buildCaptionFilter(item: MediaItem, captionSettings: CaptionSettings): string {
+  if (!item.showCaption || !item.caption) {
+    return '';
+  }
+
+  // Escape caption text
+  const escapedCaption = item.caption
+    .replace(/\\/g, '\\\\\\\\')
+    .replace(/'/g, "'\\\\\\''")
+    .replace(/:/g, '\\:');
+
+  const fontSize = captionSettings.fontSize;
+  const fontColor = captionSettings.textColor.replace('#', '0x');
+  const boxColor = captionSettings.backgroundColor.replace('#', '0x');
+  const boxOpacity = Math.round(captionSettings.backgroundOpacity * 255).toString(16).padStart(2, '0');
+
+  // Position mapping
+  const positions: Record<string, string> = {
+    'bottom-left': 'x=40:y=h-th-40',
+    'bottom-center': 'x=(w-tw)/2:y=h-th-40',
+    'bottom-right': 'x=w-tw-40:y=h-th-40',
+    'top-left': 'x=40:y=40',
+    'top-center': 'x=(w-tw)/2:y=40',
+    'top-right': 'x=w-tw-40:y=40',
+    'center': 'x=(w-tw)/2:y=(h-th)/2'
+  };
+
+  const position = positions[captionSettings.position] || positions['bottom-center'];
+
+  // Escape the colon in the path
+  const fontFile = 'C\\\\:/Windows/Fonts/arial.ttf';
+
+  // Build drawtext
+  const drawtextFilter = 
+    `drawtext=` +
+    `fontfile=${fontFile}:` +
+    `text='${escapedCaption}':` +
+    `fontsize=${fontSize}:` +
+    `fontcolor=${fontColor}:` +
+    `box=1:` +
+    `boxcolor=${boxColor}${boxOpacity}:` +
+    `boxborderw=10:` +
+    position;
+
+  return `,${drawtextFilter}`;
+}
+
 async function preprocessSingleItem(
   item: MediaItem,
   index: number,
   tempDir: string,
   aspectRatio: string,
-  defaultPhotoDuration: number
+  defaultPhotoDuration: number,
+  captionSettings: CaptionSettings
 ): Promise<string> {
   const [width, height] = aspectRatio.split(':').map(Number);
   const targetWidth = 1920;
   const targetHeight = Math.round((targetWidth * height) / width);
   
   const outputPath = `${tempDir}\\temp_${index}.mp4`;
+
+  // Build video filter with captions
+  const captionFilter = buildCaptionFilter(item, captionSettings);
+  const videoFilter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,` +
+                      `pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black,` +
+                      `setsar=1${captionFilter}`;
 
   if (item.type === 'video') {
     if (item.clips && item.clips.length > 0) {
@@ -35,17 +90,17 @@ async function preprocessSingleItem(
         const clipPath = `${tempDir}\\temp_${index}_clip_${clipIdx}.mp4`;
         
         const args = [
-          '-ss', String(clip.start),  // MOVED BEFORE -i for faster seeking
+          '-ss', String(clip.start),
           '-i', item.filepath,
-          '-t', String(clip.end - clip.start),  // Duration instead of absolute time
-          '-vf', `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`,
+          '-t', String(clip.end - clip.start),
+          '-vf', videoFilter,
           '-af', 'aformat=sample_rates=48000:channel_layouts=stereo',
           '-c:v', 'libx264',
           '-preset', 'ultrafast',
           '-crf', '23',
           '-c:a', 'aac',
           '-b:a', '192k',
-          '-avoid_negative_ts', 'make_zero',  // Fix timing issues
+          '-avoid_negative_ts', 'make_zero',
           '-y',
           clipPath
         ];
@@ -92,7 +147,7 @@ async function preprocessSingleItem(
     } else {
       const args = [
         '-i', item.filepath,
-        '-vf', `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`,
+        '-vf', videoFilter,
         '-af', 'aformat=sample_rates=48000:channel_layouts=stereo',
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
@@ -114,7 +169,7 @@ async function preprocessSingleItem(
       '-f', 'lavfi',
       '-i', `anullsrc=channel_layout=stereo:sample_rate=48000`,
       '-t', String(duration),
-      '-vf', `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`,
+      '-vf', videoFilter,
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-crf', '23',
@@ -136,13 +191,29 @@ export async function combineVideo(options: CombineVideoOptions): Promise<void> 
     outputPath,
     aspectRatio,
     defaultPhotoDuration,
+    captionSettings,
     onProgress
   } = options;
 
-  console.log(`Pre-processing ${mediaItems.length} items individually...`);
+  console.log(`Pre-processing ${mediaItems.length} items with captions...`);
 
   try {
-    const tempDir = outputPath.substring(0, outputPath.lastIndexOf('\\'));
+    const projectDir = outputPath.substring(0, outputPath.lastIndexOf('\\'));
+    const projectName = outputPath.substring(outputPath.lastIndexOf('\\') + 1, outputPath.lastIndexOf('_combined'));
+    const tempDir = `${projectDir}\\${projectName}_temp`;
+
+    try {
+      const tempExists = await exists(tempDir);
+      if (tempExists) {
+        await remove(tempDir, { recursive: true });
+      }
+    } catch (error) {
+      console.log('Temp dir does not exist, will create');
+    }
+    
+    await mkdir(tempDir, { recursive: true });
+    console.log(`Created temp directory: ${tempDir}`);
+
     const processedPaths: string[] = [];
 
     for (let i = 0; i < mediaItems.length; i++) {
@@ -154,7 +225,8 @@ export async function combineVideo(options: CombineVideoOptions): Promise<void> 
         i,
         tempDir,
         aspectRatio,
-        defaultPhotoDuration
+        defaultPhotoDuration,
+        captionSettings
       );
       processedPaths.push(processedPath);
     }
@@ -166,24 +238,25 @@ export async function combineVideo(options: CombineVideoOptions): Promise<void> 
     const concatFilter = processedPaths.map((_, i) => `[${i}:v][${i}:a]`).join('') +
       `concat=n=${processedPaths.length}:v=1:a=1[outv][outa]`;
 
-const concatArgs = [
-  ...concatInputs,
-  '-filter_complex', concatFilter,
-  '-map', '[outv]',
-  '-map', '[outa]',
-  '-c:v', 'libx264',  // ✅ RE-ENCODE
-  '-preset', 'ultrafast',
-  '-crf', '23',
-  '-c:a', 'aac',
-  '-b:a', '192k',
-  '-y',
-  outputPath
-];
+    const concatArgs = [
+      ...concatInputs,
+      '-filter_complex', concatFilter,
+      '-map', '[outv]',
+      '-map', '[outa]',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-crf', '23',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-y',
+      outputPath
+    ];
 
     await invoke<string>('run_ffmpeg', { args: concatArgs });
     
     if (onProgress) onProgress(100);
-    console.log('Video combination complete!');
+    console.log('Video combination complete with captions!');
+    
   } catch (error) {
     console.error('FFmpeg processing failed:', error);
     throw new Error(`FFmpeg failed: ${error}`);

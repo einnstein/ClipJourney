@@ -99,6 +99,22 @@
         { "path": "$APPDATA/**" }
       ]
     },
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [
+        { "path": "C:/**" },
+        { "path": "D:/**" },
+        { "path": "E:/**" },
+        { "path": "$HOME/**" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$VIDEO/**" },
+        { "path": "$PICTURE/**" },
+        { "path": "$MUSIC/**" },
+        { "path": "$APPDATA/**" }
+      ]
+    },
     "fs:allow-remove",
     "fs:allow-rename",
     "store:default",
