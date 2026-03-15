@@ -11,7 +11,8 @@ import AspectRatioModal from './components/AspectRatioModal';
 import { generateProjectHash, createSnapshot, ProjectSnapshot } from './utils/projectHash';
 import ProgressModal from './components/ProgressModal';
 import { exists } from '@tauri-apps/plugin-fs';
-
+import FinalizationWindow from './components/FinalizationWindow';
+import { AudioTrack } from './components/AudioTimeline';
 
 function App() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
@@ -35,6 +36,7 @@ const [progressMessage, setProgressMessage] = useState('');
 const [progressPercent, setProgressPercent] = useState<number | undefined>(undefined);
 const [projectSnapshot, setProjectSnapshot] = useState<ProjectSnapshot | null>(null);
 const [combinedVideoPath, setCombinedVideoPath] = useState<string | null>(null);
+const [showFinalizationWindow, setShowFinalizationWindow] = useState(false);
 
 
   const selectedItem = mediaItems.find(item => item.id === selectedItemId) || null;
@@ -485,19 +487,105 @@ const handleFinalizeAndExport = async () => {
   }
   
   try {
-    if (await needsRecombining()) {  // ADD await HERE
+    if (await needsRecombining()) {
       // Re-combine video
       setProgressMessage('Changes detected. Combining video clips...');
-      const videoPath = await combineVideo();
-      alert(`Video combined! Path: ${videoPath}\n\nFinalization window coming soon...`);
-    } else {
-      // Reuse existing combined video
-      alert(`Using existing combined video: ${combinedVideoPath}\n\nFinalization window coming soon...`);
+      await combineVideo();
     }
+    
+    // Now open the finalization window
+    setShowFinalizationWindow(true);
+    
   } catch (error) {
     console.error('Error in finalization:', error);
     alert(`Error: ${error}`);
   }
+};
+
+const handleCloseFinalization = () => {
+  setShowFinalizationWindow(false);
+};
+
+const handleFinalExport = async (audioTracks: AudioTrack[]) => {
+  if (!combinedVideoPath || !projectPath) {
+    alert('No video to export');
+    return;
+  }
+
+  try {
+    setShowFinalizationWindow(false);
+    setProgressMessage('Exporting final video with audio...');
+    setProgressPercent(0);
+    setShowProgressModal(true);
+
+    const projectDir = projectPath.substring(0, projectPath.lastIndexOf('\\'));
+    const projectName = projectPath.substring(
+      projectPath.lastIndexOf('\\') + 1,
+      projectPath.lastIndexOf('.cjproj')
+    );
+    const finalOutputPath = `${projectDir}\\${projectName}_final.mp4`;
+
+    if (audioTracks.length === 0) {
+      // No audio tracks, just copy combined video as final
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('run_ffmpeg', {
+        args: ['-i', combinedVideoPath, '-c', 'copy', '-y', finalOutputPath]
+      });
+    } else {
+      // Merge video with audio tracks
+      await mergeVideoWithAudio(combinedVideoPath, audioTracks, finalOutputPath);
+    }
+
+    setShowProgressModal(false);
+    alert(`Video exported successfully!\n${finalOutputPath}`);
+
+  } catch (error) {
+    console.error('Error exporting final video:', error);
+    setShowProgressModal(false);
+    alert(`Export failed: ${error}`);
+  }
+};
+
+const mergeVideoWithAudio = async (
+  videoPath: string,
+  audioTracks: AudioTrack[],
+  outputPath: string
+) => {
+  const { invoke } = await import('@tauri-apps/api/core');
+  
+  // Build FFmpeg command to merge video + multiple audio tracks
+  const inputs = ['-i', videoPath];
+  
+  // Add all audio inputs
+  audioTracks.forEach(track => {
+    inputs.push('-i', track.filepath);
+  });
+
+  // Build filter complex for audio mixing
+  const audioFilters = audioTracks.map((track, i) => {
+    const inputIdx = i + 1; // Video is input 0
+    const delay = Math.round(track.timelineStart * 1000); // Convert to milliseconds
+    return `[${inputIdx}:a]adelay=${delay}|${delay},volume=${track.volume}[a${i}]`;
+  }).join(';');
+
+  const mixFilter = audioTracks.map((_, i) => `[a${i}]`).join('') + 
+    `amix=inputs=${audioTracks.length}:duration=first[aout]`;
+
+  const filterComplex = audioFilters + ';' + mixFilter;
+
+  const args = [
+    ...inputs,
+    '-filter_complex', filterComplex,
+    '-map', '0:v',  // Video from input 0
+    '-map', '[aout]',  // Mixed audio
+    '-c:v', 'copy',  // Don't re-encode video
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-y',
+    outputPath
+  ];
+
+  await invoke('run_ffmpeg', { args });
 };
 
   return (
@@ -787,6 +875,14 @@ const handleFinalizeAndExport = async () => {
           progress={progressPercent}
         />
       )}
+      {showFinalizationWindow && combinedVideoPath && projectPath && (
+  <FinalizationWindow
+    combinedVideoPath={combinedVideoPath}
+    projectPath={projectPath}
+    onClose={handleCloseFinalization}
+    onExport={handleFinalExport}
+  />
+)}
     </div>
   );
 }
