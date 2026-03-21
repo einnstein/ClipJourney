@@ -38,23 +38,28 @@ export default function FinalizationWindow({
     loadVideo();
   }, [combinedVideoPath]);
 
-  // Load existing audio tracks from project
-  useEffect(() => {
-    const loadAudioTracks = async () => {
-      try {
-        const { readTextFile } = await import('@tauri-apps/plugin-fs');
-        const content = await readTextFile(projectPath);
-        const projectData = JSON.parse(content);
-        
-        if (projectData.audioTracks) {
-          setTimelineTracks(projectData.audioTracks);
-        }
-      } catch (error) {
-        console.error('Error loading audio tracks:', error);
+// Load existing audio tracks from project
+useEffect(() => {
+  const loadAudioTracks = async () => {
+    try {
+      const { readTextFile } = await import('@tauri-apps/plugin-fs');
+      const content = await readTextFile(projectPath);
+      const projectData = JSON.parse(content);
+      
+      if (projectData.audioTracks) {
+        setTimelineTracks(projectData.audioTracks);
       }
-    };
-    loadAudioTracks();
-  }, [projectPath]);
+      
+      // ADD THIS: Load audio files list too
+      if (projectData.audioFiles) {
+        setAudioFiles(projectData.audioFiles);
+      }
+    } catch (error) {
+      console.error('Error loading audio tracks:', error);
+    }
+  };
+  loadAudioTracks();
+}, [projectPath]);
 
   // Create audio elements for each track
   useEffect(() => {
@@ -145,22 +150,24 @@ export default function FinalizationWindow({
     }
   }, [timelineTracks]);
 
-  const handleSaveProject = async () => {
-    try {
-      const { readTextFile } = await import('@tauri-apps/plugin-fs');
-      const content = await readTextFile(projectPath);
-      const projectData = JSON.parse(content);
-      
-      projectData.audioTracks = timelineTracks;
-      
-      await writeTextFile(projectPath, JSON.stringify(projectData, null, 2));
-      setHasUnsavedChanges(false);
-      alert('Project saved with audio tracks!');
-    } catch (error) {
-      console.error('Error saving project:', error);
-      alert(`Failed to save: ${error}`);
-    }
-  };
+const handleSaveProject = async () => {
+  try {
+    const { readTextFile } = await import('@tauri-apps/plugin-fs');
+    const content = await readTextFile(projectPath);
+    const projectData = JSON.parse(content);
+    
+    // Update BOTH audio tracks AND audio files list
+    projectData.audioTracks = timelineTracks;
+    projectData.audioFiles = audioFiles;  // ADD THIS LINE
+    
+    await writeTextFile(projectPath, JSON.stringify(projectData, null, 2));
+    setHasUnsavedChanges(false);
+    alert('Project saved with audio tracks!');
+  } catch (error) {
+    console.error('Error saving project:', error);
+    alert(`Failed to save: ${error}`);
+  }
+};
 
   const handleVideoLoaded = () => {
     if (videoRef.current) {
@@ -296,44 +303,47 @@ export default function FinalizationWindow({
 
         {/* Audio Files Panel (Right) */}
         <div className="w-80 bg-gray-850 border-l border-gray-700 flex flex-col">
-          <AudioFileList
-            audioItems={audioFiles}
-            onAudioItemsChange={setAudioFiles}
-            onAddToTimeline={async (audioItem) => {
-              const audio = new Audio();
-              const converted = convertFileSrc(audioItem.filepath);
-              audio.src = converted;
-              
-              audio.addEventListener('loadedmetadata', () => {
-                const newTrack: AudioTrack = {
-                  id: `track_${Date.now()}_${Math.random()}`,
-                  filename: audioItem.filename,
-                  filepath: audioItem.filepath,
-                  fullDuration: audio.duration,
-                  timelineStart: 0,
-                  clipStart: 0,
-                  clipEnd: 0,
-                  volume: 1.0
-                };
-                setTimelineTracks([...timelineTracks, newTrack]);
-              });
-            }}
-          />
+        <AudioFileList
+          audioItems={audioFiles}
+          onAudioItemsChange={setAudioFiles}
+          onAddToTimeline={async (audioItem) => {
+            const audio = new Audio();
+            const converted = convertFileSrc(audioItem.filepath);
+            audio.src = converted;
+            
+            audio.addEventListener('loadedmetadata', () => {
+              const newTrack: AudioTrack = {
+                id: `track_${Date.now()}_${Math.random()}`,
+                filename: audioItem.filename,
+                filepath: audioItem.filepath,
+                fullDuration: audio.duration,
+                timelineStart: 0,
+                clipStart: 0,
+                clipEnd: 0,
+                volume: 1.0,
+                fadeInDuration: 0,    // ADD THIS LINE
+                fadeOutDuration: 0    // ADD THIS LINE
+              };
+              setTimelineTracks([...timelineTracks, newTrack]);
+            });
+          }}
+        />
         </div>
       </div>
 
       {/* Audio Timeline (Bottom) */}
-      <div className="flex">
-        <div className="flex-1 h-32 bg-gray-900 border-t border-gray-700">
-          <AudioTimeline
-            totalDuration={totalDuration}
-            currentTime={currentTime}
-            audioTracks={timelineTracks}
-            onAudioTracksChange={setTimelineTracks}
-          />
-        </div>
-        <div className="w-80 bg-gray-850 border-t border-l border-gray-700" />
-      </div>
+{/* Audio Timeline (Bottom) - increase height */}
+<div className="flex">
+  <div className="flex-1 h-40 bg-gray-900 border-t border-gray-700">  {/* Changed from h-32 to h-40 */}
+    <AudioTimeline
+      totalDuration={totalDuration}
+      currentTime={currentTime}
+      audioTracks={timelineTracks}
+      onAudioTracksChange={setTimelineTracks}
+    />
+  </div>
+  <div className="w-80 bg-gray-850 border-t border-l border-gray-700" />
+</div>
     </div>
   );
 }
