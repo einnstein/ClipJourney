@@ -87,38 +87,57 @@ useEffect(() => {
 
     const video = videoRef.current;
 
-    const syncAudio = () => {
-      const videoTime = video.currentTime;
+   const syncAudio = () => {
+  const videoTime = video.currentTime;
 
-      audioElementsRef.current.forEach((audio, trackId) => {
-        const track = timelineTracks.find(t => t.id === trackId);
-        if (!track) return;
+  audioElementsRef.current.forEach((audio, trackId) => {
+    const track = timelineTracks.find(t => t.id === trackId);
+    if (!track) return;
 
-        const trackStart = track.timelineStart;
-        const trackEnd = trackStart + track.fullDuration;
+    const trackStart = track.timelineStart;
+    const trackDuration = track.fullDuration - track.clipStart - track.clipEnd;
+    const trackEnd = trackStart + trackDuration;
 
-        // Check if video playback is within this audio track's range
-        if (videoTime >= trackStart && videoTime < trackEnd) {
-          const audioTime = videoTime - trackStart;
-          
-          // Sync audio playback
-          if (Math.abs(audio.currentTime - audioTime) > 0.3) {
-            audio.currentTime = audioTime;
-          }
+    if (videoTime >= trackStart && videoTime < trackEnd) {
+      const relativeTime = videoTime - trackStart;
+      const audioTime = relativeTime + track.clipStart;
+      
+      // Calculate fade volume
+      let fadeVolume = 1.0;
+      
+      const fadeInDuration = track.fadeInDuration || 0;
+      const fadeOutDuration = track.fadeOutDuration || 0;
+      
+      // Apply fade in
+      if (fadeInDuration > 0 && relativeTime < fadeInDuration) {
+        fadeVolume = relativeTime / fadeInDuration; // Linear fade from 0 to 1
+      }
+      
+      // Apply fade out
+      if (fadeOutDuration > 0 && relativeTime > (trackDuration - fadeOutDuration)) {
+        const fadeOutProgress = (trackDuration - relativeTime) / fadeOutDuration;
+        fadeVolume = Math.min(fadeVolume, fadeOutProgress); // Linear fade from 1 to 0
+      }
+      
+      // Apply volume with fade
+      audio.volume = track.volume * fadeVolume;
+      
+      if (Math.abs(audio.currentTime - audioTime) > 0.3) {
+        audio.currentTime = audioTime;
+      }
 
-          if (video.paused && !audio.paused) {
-            audio.pause();
-          } else if (!video.paused && audio.paused) {
-            audio.play().catch(err => console.error('Audio play error:', err));
-          }
-        } else {
-          // Outside range - pause audio
-          if (!audio.paused) {
-            audio.pause();
-          }
-        }
-      });
-    };
+      if (video.paused && !audio.paused) {
+        audio.pause();
+      } else if (!video.paused && audio.paused) {
+        audio.play().catch(err => console.error('Audio play error:', err));
+      }
+    } else {
+      if (!audio.paused) {
+        audio.pause();
+      }
+    }
+  });
+};
 
     video.addEventListener('play', syncAudio);
     video.addEventListener('pause', syncAudio);
@@ -251,54 +270,67 @@ const handleSaveProject = async () => {
             )}
           </div>
 
-          {/* Video Controls */}
-          <div className="bg-gray-800 p-4 border-t border-gray-700">
-            <div className="flex flex-col gap-3">
-              {/* Progress Bar */}
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-400 w-16">
-                  {formatTime(currentTime)}
-                </span>
-                <div 
-                  className="flex-1 h-2 bg-gray-700 rounded-full cursor-pointer relative group"
-                  onClick={(e) => {
-                    if (!videoRef.current) return;
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const percent = (e.clientX - rect.left) / rect.width;
-                    const newTime = percent * totalDuration;
-                    videoRef.current.currentTime = newTime;
-                  }}
-                >
-                  <div 
-                    className="absolute left-0 top-0 h-full bg-blue-500 rounded-full pointer-events-none"
-                    style={{ width: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%` }}
-                  />
-                  <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div className="absolute top-0 h-full w-1 bg-white rounded" 
-                         style={{ 
-                           left: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%`,
-                           transform: 'translateX(-50%)'
-                         }}
-                    />
-                  </div>
-                </div>
-                <span className="text-xs text-gray-400 w-16">
-                  {formatTime(totalDuration)}
-                </span>
-              </div>
-              
-              {/* Play/Pause Button */}
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={handlePlayPause}
-                  disabled={!videoSrc}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isPlaying ? '⏸ Pause' : '▶ Play'}
-                </button>
-              </div>
-            </div>
-          </div>
+{/* Video Controls */}
+<div className="bg-gray-800 p-4 border-t border-gray-700">
+  <div className="flex flex-col gap-3">
+    {/* Progress Bar */}
+    <div className="flex items-center gap-3">
+      <span className="text-xs text-gray-400 w-16">
+        {formatTime(currentTime)}
+      </span>
+      <div 
+        className="flex-1 h-2 bg-gray-700 rounded-full cursor-pointer relative group"
+        onClick={(e) => {
+          if (!videoRef.current) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const percent = (e.clientX - rect.left) / rect.width;
+          const newTime = percent * totalDuration;
+          videoRef.current.currentTime = newTime;
+        }}
+      >
+        <div 
+          className="absolute left-0 top-0 h-full bg-blue-500 rounded-full pointer-events-none"
+          style={{ width: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%` }}
+        />
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="absolute top-0 h-full w-1 bg-white rounded" 
+               style={{ 
+                 left: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%`,
+                 transform: 'translateX(-50%)'
+               }}
+          />
+        </div>
+      </div>
+      <span className="text-xs text-gray-400 w-16">
+        {formatTime(totalDuration)}
+      </span>
+    </div>
+    
+    {/* Play/Pause/Stop Buttons - Right aligned */}
+    <div className="flex items-center justify-end gap-2">
+      <button
+        onClick={() => {
+          if (videoRef.current) {
+            videoRef.current.currentTime = 0;
+            videoRef.current.pause();
+            setIsPlaying(false);
+          }
+        }}
+        disabled={!videoSrc}
+        className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        ⏹ Stop
+      </button>
+      <button
+        onClick={handlePlayPause}
+        disabled={!videoSrc}
+        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {isPlaying ? '⏸ Pause' : '▶ Play'}
+      </button>
+    </div>
+  </div>
+</div>
         </div>
 
         {/* Audio Files Panel (Right) */}

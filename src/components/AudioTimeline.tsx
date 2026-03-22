@@ -11,8 +11,8 @@ export interface AudioTrack {
   clipStart: number;
   clipEnd: number;
   volume: number;
-  fadeInDuration: number;   // ADD THIS
-  fadeOutDuration: number;  // ADD THIS
+  fadeInDuration: number;
+  fadeOutDuration: number;
 }
 
 interface AudioTimelineProps {
@@ -41,7 +41,6 @@ export default function AudioTimeline({
     return track.fullDuration - track.clipStart - track.clipEnd;
   };
 
-  
   const checkCollision = (trackId: string, newStart: number, newDuration: number): boolean => {
     const newEnd = newStart + newDuration;
     
@@ -161,7 +160,6 @@ export default function AudioTimeline({
     document.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Handle fade in handle drag
   const handleFadeInMouseDown = (e: React.MouseEvent, trackId: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -171,7 +169,7 @@ export default function AudioTimeline({
     if (!track || !timelineRef.current) return;
 
     const rect = timelineRef.current.getBoundingClientRect();
-    const startFadeIn = track.fadeInDuration;
+    const startFadeIn = track.fadeInDuration || 0;
     const trackDuration = getTrackDuration(track);
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
@@ -195,7 +193,6 @@ export default function AudioTimeline({
     document.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Handle fade out handle drag
   const handleFadeOutMouseDown = (e: React.MouseEvent, trackId: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -205,12 +202,12 @@ export default function AudioTimeline({
     if (!track || !timelineRef.current) return;
 
     const rect = timelineRef.current.getBoundingClientRect();
-    const startFadeOut = track.fadeOutDuration;
+    const startFadeOut = track.fadeOutDuration || 0;
     const trackDuration = getTrackDuration(track);
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
-      const deltaTime = -(deltaX / rect.width) * totalDuration; // Negative because dragging left increases fade
+      const deltaTime = -(deltaX / rect.width) * totalDuration;
       
       const newFadeOut = Math.max(0, Math.min(trackDuration / 2, startFadeOut + deltaTime));
       
@@ -231,6 +228,51 @@ export default function AudioTimeline({
 
   const handleRemoveTrack = (trackId: string) => {
     onAudioTracksChange(audioTracks.filter(t => t.id !== trackId));
+    if (selectedTrackId === trackId) {
+      setSelectedTrackId(null);
+    }
+  };
+
+  const handleTrackRightClick = (e: React.MouseEvent, trackId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const track = audioTracks.find(t => t.id === trackId);
+    if (!track) return;
+    
+    const menu = document.createElement('div');
+    menu.className = 'fixed bg-gray-800 border border-gray-600 rounded shadow-lg py-1 z-50 min-w-32';
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    
+    const adjustVolumeBtn = document.createElement('button');
+    adjustVolumeBtn.textContent = 'Adjust Volume';
+    adjustVolumeBtn.className = 'w-full px-4 py-2 text-left hover:bg-gray-700 text-sm text-white';
+    adjustVolumeBtn.onclick = () => {
+      setSelectedTrackId(trackId);
+      document.body.removeChild(menu);
+    };
+    
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = 'Delete Track';
+    deleteBtn.className = 'w-full px-4 py-2 text-left hover:bg-gray-700 text-sm text-red-400';
+    deleteBtn.onclick = () => {
+      handleRemoveTrack(trackId);
+      document.body.removeChild(menu);
+    };
+    
+    menu.appendChild(adjustVolumeBtn);
+    menu.appendChild(deleteBtn);
+    document.body.appendChild(menu);
+    
+    const closeMenu = (e: MouseEvent) => {
+      if (!menu.contains(e.target as Node)) {
+        document.body.removeChild(menu);
+        document.removeEventListener('click', closeMenu);
+      }
+    };
+    
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
   };
 
   const getTrackStyle = (track: AudioTrack) => {
@@ -246,17 +288,17 @@ export default function AudioTimeline({
     };
   };
 
-const getFadeInWidth = (track: AudioTrack) => {
-  const trackDuration = getTrackDuration(track);
-  if (trackDuration === 0) return 0;
-  return ((track.fadeInDuration || 0) / trackDuration) * 100;  // ADD || 0
-};
+  const getFadeInWidth = (track: AudioTrack) => {
+    const trackDuration = getTrackDuration(track);
+    if (trackDuration === 0) return 0;
+    return ((track.fadeInDuration || 0) / trackDuration) * 100;
+  };
 
-const getFadeOutWidth = (track: AudioTrack) => {
-  const trackDuration = getTrackDuration(track);
-  if (trackDuration === 0) return 0;
-  return ((track.fadeOutDuration || 0) / trackDuration) * 100;  // ADD || 0
-};
+  const getFadeOutWidth = (track: AudioTrack) => {
+    const trackDuration = getTrackDuration(track);
+    if (trackDuration === 0) return 0;
+    return ((track.fadeOutDuration || 0) / trackDuration) * 100;
+  };
 
   const playheadPosition = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
 
@@ -294,11 +336,12 @@ const getFadeOutWidth = (track: AudioTrack) => {
         </span>
 
         <div className="flex-1 relative h-full">
-<div
-  ref={timelineRef}
-  className="absolute inset-0 bg-gray-800 border border-gray-700 rounded overflow-hidden"
-  onClick={() => setSelectedTrackId(null)}  // ADD THIS - click background to deselect
->
+        <div
+          ref={timelineRef}
+          className="absolute inset-0 bg-gray-800 border border-gray-700 rounded overflow-visible" // Changed overflow-hidden to overflow-visible
+          onClick={() => setSelectedTrackId(null)}
+          style={{ paddingTop: '16px' }} // Add padding for labels
+        >
             {timeMarkers.map((time) => {
               const position = totalDuration > 0 ? (time / totalDuration) * 100 : 0;
               return (
@@ -306,7 +349,12 @@ const getFadeOutWidth = (track: AudioTrack) => {
                   key={time}
                   className="absolute top-0 bottom-0 border-l border-gray-600"
                   style={{ left: `${position}%` }}
-                />
+                >
+                  {/* Time label */}
+                  <div className="absolute top-0 -translate-x-1/2 -translate-y-full pb-1 text-[9px] text-gray-500 whitespace-nowrap">
+                    {formatTime(time)}
+                  </div>
+                </div>
               );
             })}
 
@@ -333,14 +381,11 @@ const getFadeOutWidth = (track: AudioTrack) => {
                       top: '50%',
                       transform: 'translateY(-50%)'
                     }}
-                    onMouseDown={(e) => {
-                      setSelectedTrackId(track.id);
-                      handleTrackMouseDown(e, track.id);
-                    }}
-                    title={`${track.filename}\nStart: ${formatTime(track.timelineStart)}\nDuration: ${formatTime(getTrackDuration(track))}\nVolume: ${Math.round(track.volume * 100)}%`}
+                    onMouseDown={(e) => handleTrackMouseDown(e, track.id)}
+                    onContextMenu={(e) => handleTrackRightClick(e, track.id)}
+                    title={`${track.filename}\nRight-click for options`}
                   >
-                    {/* Fade In Triangle Overlay */}
-                    {track.fadeInDuration > 0 && (
+                    {(track.fadeInDuration || 0) > 0 && (
                       <div
                         className="absolute left-0 top-0 bottom-0 pointer-events-none"
                         style={{
@@ -354,8 +399,7 @@ const getFadeOutWidth = (track: AudioTrack) => {
                       </div>
                     )}
                     
-                    {/* Fade Out Triangle Overlay */}
-                    {track.fadeOutDuration > 0 && (
+                    {(track.fadeOutDuration || 0) > 0 && (
                       <div
                         className="absolute right-0 top-0 bottom-0 pointer-events-none"
                         style={{
@@ -369,7 +413,6 @@ const getFadeOutWidth = (track: AudioTrack) => {
                       </div>
                     )}
 
-                    {/* Fade In Handle */}
                     <div
                       className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize opacity-0 group-hover:opacity-100 hover:bg-yellow-400 bg-yellow-500 z-10"
                       style={{ left: `${fadeInWidth}%` }}
@@ -377,7 +420,6 @@ const getFadeOutWidth = (track: AudioTrack) => {
                       title="Drag to adjust fade in"
                     />
 
-                    {/* Left edge trim handle */}
                     <div
                       className="absolute left-0 top-0 bottom-0 w-2 bg-blue-500 cursor-ew-resize opacity-0 group-hover:opacity-100 hover:bg-blue-400 z-10"
                       onMouseDown={(e) => handleLeftEdgeMouseDown(e, track.id)}
@@ -388,30 +430,18 @@ const getFadeOutWidth = (track: AudioTrack) => {
                       {track.filename}
                     </span>
                     
-                    {/* Right edge trim handle */}
                     <div
                       className="absolute right-0 top-0 bottom-0 w-2 bg-blue-500 cursor-ew-resize opacity-0 group-hover:opacity-100 hover:bg-blue-400 z-10"
                       onMouseDown={(e) => handleRightEdgeMouseDown(e, track.id)}
                       title="Drag to trim end"
                     />
 
-                    {/* Fade Out Handle */}
                     <div
                       className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize opacity-0 group-hover:opacity-100 hover:bg-yellow-400 bg-yellow-500 z-10"
                       style={{ right: `${fadeOutWidth}%` }}
                       onMouseDown={(e) => handleFadeOutMouseDown(e, track.id)}
                       title="Drag to adjust fade out"
                     />
-                    
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveTrack(track.id);
-                      }}
-                      className="mr-1 px-1 bg-red-600 hover:bg-red-700 rounded text-xs opacity-0 group-hover:opacity-100 transition-opacity relative z-10"
-                    >
-                      ×
-                    </button>
                   </div>
                 );
               })}
@@ -430,7 +460,6 @@ const getFadeOutWidth = (track: AudioTrack) => {
         </span>
       </div>
 
-      {/* Volume control for selected track */}
       {selectedTrackId && (
         <div className="mt-2 p-2 bg-gray-800 rounded border border-gray-700">
           {(() => {
@@ -460,8 +489,8 @@ const getFadeOutWidth = (track: AudioTrack) => {
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-gray-500">
-<span className="w-16">Fade In: {(track.fadeInDuration || 0).toFixed(1)}s</span>
-<span className="w-16">Fade Out: {(track.fadeOutDuration || 0).toFixed(1)}s</span>
+                  <span className="w-20">Fade In: {(track.fadeInDuration || 0).toFixed(1)}s</span>
+                  <span className="w-20">Fade Out: {(track.fadeOutDuration || 0).toFixed(1)}s</span>
                 </div>
               </div>
             );

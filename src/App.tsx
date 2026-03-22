@@ -13,6 +13,7 @@ import ProgressModal from './components/ProgressModal';
 import { exists } from '@tauri-apps/plugin-fs';
 import FinalizationWindow from './components/FinalizationWindow';
 import { AudioTrack } from './components/AudioTimeline';
+import YouTubeTimestampsModal from './components/YouTubeTimestampsModal';
 
 function App() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
@@ -37,7 +38,7 @@ const [progressPercent, setProgressPercent] = useState<number | undefined>(undef
 const [projectSnapshot, setProjectSnapshot] = useState<ProjectSnapshot | null>(null);
 const [combinedVideoPath, setCombinedVideoPath] = useState<string | null>(null);
 const [showFinalizationWindow, setShowFinalizationWindow] = useState(false);
-
+const [showYouTubeTimestamps, setShowYouTubeTimestamps] = useState(false);
 
   const selectedItem = mediaItems.find(item => item.id === selectedItemId) || null;
 
@@ -553,7 +554,7 @@ const mergeVideoWithAudio = async (
 ) => {
   const { invoke } = await import('@tauri-apps/api/core');
   
-  // Build FFmpeg command to merge video + multiple audio tracks
+  // Build FFmpeg command to merge video + multiple audio tracks with fades and trimming
   const inputs = ['-i', videoPath];
   
   // Add all audio inputs
@@ -561,17 +562,48 @@ const mergeVideoWithAudio = async (
     inputs.push('-i', track.filepath);
   });
 
-  // Build filter complex for audio mixing
-  const audioFilters = audioTracks.map((track, i) => {
+  // Build filter complex for audio processing
+  const audioFilters: string[] = [];
+  
+  audioTracks.forEach((track, i) => {
     const inputIdx = i + 1; // Video is input 0
-    const delay = Math.round(track.timelineStart * 1000); // Convert to milliseconds
-    return `[${inputIdx}:a]adelay=${delay}|${delay},volume=${track.volume}[a${i}]`;
-  }).join(';');
+    const trackDuration = track.fullDuration - track.clipStart - track.clipEnd;
+    
+    // Build filter chain for this track
+    let filterChain = `[${inputIdx}:a]`;
+    
+    // Trim audio (handle clipStart and clipEnd)
+    if (track.clipStart > 0 || track.clipEnd > 0) {
+      const trimEnd = track.fullDuration - track.clipEnd;
+      filterChain += `atrim=start=${track.clipStart}:end=${trimEnd},asetpts=PTS-STARTPTS,`;
+    }
+    
+    // Apply fades
+    if ((track.fadeInDuration || 0) > 0) {
+      filterChain += `afade=t=in:st=0:d=${track.fadeInDuration},`;
+    }
+    
+    if ((track.fadeOutDuration || 0) > 0) {
+      const fadeOutStart = trackDuration - track.fadeOutDuration;
+      filterChain += `afade=t=out:st=${fadeOutStart}:d=${track.fadeOutDuration},`;
+    }
+    
+    // Apply volume
+    filterChain += `volume=${track.volume},`;
+    
+    // Delay to position on timeline
+    const delayMs = Math.round(track.timelineStart * 1000);
+    filterChain += `adelay=${delayMs}|${delayMs}`;
+    
+    filterChain += `[a${i}]`;
+    audioFilters.push(filterChain);
+  });
 
-  const mixFilter = audioTracks.map((_, i) => `[a${i}]`).join('') + 
-    `amix=inputs=${audioTracks.length}:duration=first[aout]`;
+  // Mix original video audio with all music tracks
+  const mixInputs = ['[0:a]', ...audioTracks.map((_, i) => `[a${i}]`)].join('');
+  const mixFilter = `${mixInputs}amix=inputs=${audioTracks.length + 1}:duration=first:normalize=0[aout]`;
 
-  const filterComplex = audioFilters + ';' + mixFilter;
+  const filterComplex = audioFilters.join(';') + ';' + mixFilter;
 
   const args = [
     ...inputs,
@@ -585,6 +617,7 @@ const mergeVideoWithAudio = async (
     outputPath
   ];
 
+  console.log('FFmpeg export args:', args);
   await invoke('run_ffmpeg', { args });
 };
 
@@ -701,6 +734,15 @@ const mergeVideoWithAudio = async (
                   className="w-full px-4 py-2 text-left hover:bg-gray-700 text-sm"
                 >
                   Caption Settings...
+                </button>
+                <button
+                  onClick={() => {
+                    setShowYouTubeTimestamps(true);
+                    setShowEditMenu(false);
+                  }}
+                  className="w-full px-4 py-2 text-left hover:bg-gray-700 text-sm"
+                >
+                  Generate YouTube Timestamps...
                 </button>
               </div>
             </>
@@ -875,6 +917,15 @@ const mergeVideoWithAudio = async (
           progress={progressPercent}
         />
       )}
+
+      {/* YouTube Timestamps Modal */}
+{showYouTubeTimestamps && (
+  <YouTubeTimestampsModal
+    mediaItems={mediaItems}
+    defaultPhotoDuration={defaultPhotoDuration}
+    onClose={() => setShowYouTubeTimestamps(false)}
+  />
+)}
       {showFinalizationWindow && combinedVideoPath && projectPath && (
   <FinalizationWindow
     combinedVideoPath={combinedVideoPath}
