@@ -12,6 +12,7 @@ export interface MediaItem {
   filepath: string;
   type: 'video' | 'image';
   duration?: number; // Video duration in seconds
+  resolution?: string;
   photoDuration?: number; // Photo display duration in seconds (undefined = use default)
   thumbnail?: string;
   dateCreated: Date;

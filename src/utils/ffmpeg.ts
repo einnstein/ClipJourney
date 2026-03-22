@@ -11,6 +11,7 @@ interface CombineVideoOptions {
   aspectRatio: string;
   defaultPhotoDuration: number;
   captionSettings: CaptionSettings;
+  targetResolution?: string;  // ADD THIS LINE
   onProgress?: (percent: number) => void;
 }
 
@@ -19,7 +20,6 @@ function buildCaptionFilter(item: MediaItem, captionSettings: CaptionSettings): 
     return '';
   }
 
-  // Escape caption text
   const escapedCaption = item.caption
     .replace(/\\/g, '\\\\\\\\')
     .replace(/'/g, "'\\\\\\''")
@@ -30,7 +30,6 @@ function buildCaptionFilter(item: MediaItem, captionSettings: CaptionSettings): 
   const boxColor = captionSettings.backgroundColor.replace('#', '0x');
   const boxOpacity = Math.round(captionSettings.backgroundOpacity * 255).toString(16).padStart(2, '0');
 
-  // Position mapping
   const positions: Record<string, string> = {
     'bottom-left': 'x=40:y=h-th-40',
     'bottom-center': 'x=(w-tw)/2:y=h-th-40',
@@ -42,11 +41,8 @@ function buildCaptionFilter(item: MediaItem, captionSettings: CaptionSettings): 
   };
 
   const position = positions[captionSettings.position] || positions['bottom-center'];
-
-  // Escape the colon in the path
   const fontFile = 'C\\\\:/Windows/Fonts/arial.ttf';
 
-  // Build drawtext
   const drawtextFilter = 
     `drawtext=` +
     `fontfile=${fontFile}:` +
@@ -65,17 +61,13 @@ async function preprocessSingleItem(
   item: MediaItem,
   index: number,
   tempDir: string,
-  aspectRatio: string,
   defaultPhotoDuration: number,
-  captionSettings: CaptionSettings
+  captionSettings: CaptionSettings,
+  targetWidth: number,
+  targetHeight: number
 ): Promise<string> {
-  const [width, height] = aspectRatio.split(':').map(Number);
-  const targetWidth = 1920;
-  const targetHeight = Math.round((targetWidth * height) / width);
-  
   const outputPath = `${tempDir}\\temp_${index}.mp4`;
 
-  // Build video filter with captions
   const captionFilter = buildCaptionFilter(item, captionSettings);
   const videoFilter = `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,` +
                       `pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:black,` +
@@ -214,6 +206,33 @@ export async function combineVideo(options: CombineVideoOptions): Promise<void> 
     await mkdir(tempDir, { recursive: true });
     console.log(`Created temp directory: ${tempDir}`);
 
+    // Detect highest resolution from all videos
+   // Use target resolution if provided, otherwise detect from videos
+let maxWidth = 1920;
+let maxHeight = 1080;
+
+if (options.targetResolution) {
+  // User selected resolution
+  [maxWidth, maxHeight] = options.targetResolution.split('x').map(Number);
+  console.log(`Using user-selected resolution: ${maxWidth}x${maxHeight}`);
+} else {
+  // Auto-detect from videos (fallback)
+  for (const item of mediaItems) {
+    if (item.type === 'video') {
+      if (item.resolution) {
+        const [width, height] = item.resolution.split('x').map(Number);
+        if (width > maxWidth) {
+          maxWidth = width;
+          maxHeight = height;
+        }
+      }
+    }
+  }
+  console.log(`Auto-detected resolution: ${maxWidth}x${maxHeight}`);
+}
+    
+    console.log(`Using maximum resolution: ${maxWidth}x${maxHeight}`);
+
     const processedPaths: string[] = [];
 
     for (let i = 0; i < mediaItems.length; i++) {
@@ -224,23 +243,40 @@ export async function combineVideo(options: CombineVideoOptions): Promise<void> 
         mediaItems[i],
         i,
         tempDir,
-        aspectRatio,
         defaultPhotoDuration,
-        captionSettings
+        captionSettings,
+        maxWidth,
+        maxHeight
       );
       processedPaths.push(processedPath);
     }
 
-    console.log('Concatenating all processed files...');
-    if (onProgress) onProgress(90);
+ console.log('Concatenating all processed files...');
+if (onProgress) onProgress(90);
 
-    const concatInputs = processedPaths.flatMap(p => ['-i', p]);
-    const concatFilter = processedPaths.map((_, i) => `[${i}:v][${i}:a]`).join('') +
-      `concat=n=${processedPaths.length}:v=1:a=1[outv][outa]`;
+// If too many files, process in batches
+if (processedPaths.length > 50) {
+  console.log(`Too many files (${processedPaths.length}), using batch concatenation...`);
+  
+  const BATCH_SIZE = 20;
+  const batchPaths: string[] = [];
+  
+  for (let batchIdx = 0; batchIdx < Math.ceil(processedPaths.length / BATCH_SIZE); batchIdx++) {
+    const batchStart = batchIdx * BATCH_SIZE;
+    const batchEnd = Math.min(batchStart + BATCH_SIZE, processedPaths.length);
+    const batchFiles = processedPaths.slice(batchStart, batchEnd);
+    
+    console.log(`Concatenating batch ${batchIdx + 1}, files ${batchStart}-${batchEnd}`);
+    
+    const batchOutputPath = `${tempDir}\\batch_${batchIdx}.mp4`;
+    
+    const batchInputs = batchFiles.flatMap(p => ['-i', p]);
+    const batchFilter = batchFiles.map((_, i) => `[${i}:v][${i}:a]`).join('') +
+      `concat=n=${batchFiles.length}:v=1:a=1[outv][outa]`;
 
-    const concatArgs = [
-      ...concatInputs,
-      '-filter_complex', concatFilter,
+    const batchArgs = [
+      ...batchInputs,
+      '-filter_complex', batchFilter,
       '-map', '[outv]',
       '-map', '[outa]',
       '-c:v', 'libx264',
@@ -249,13 +285,60 @@ export async function combineVideo(options: CombineVideoOptions): Promise<void> 
       '-c:a', 'aac',
       '-b:a', '192k',
       '-y',
-      outputPath
+      batchOutputPath
     ];
 
-    await invoke<string>('run_ffmpeg', { args: concatArgs });
-    
-    if (onProgress) onProgress(100);
-    console.log('Video combination complete with captions!');
+    await invoke<string>('run_ffmpeg', { args: batchArgs });
+    batchPaths.push(batchOutputPath);
+  }
+  
+  // Now concat all batches
+  console.log(`Merging ${batchPaths.length} batches...`);
+  const finalInputs = batchPaths.flatMap(p => ['-i', p]);
+  const finalFilter = batchPaths.map((_, i) => `[${i}:v][${i}:a]`).join('') +
+    `concat=n=${batchPaths.length}:v=1:a=1[outv][outa]`;
+
+  const finalArgs = [
+    ...finalInputs,
+    '-filter_complex', finalFilter,
+    '-map', '[outv]',
+    '-map', '[outa]',
+    '-c:v', 'libx264',
+    '-preset', 'ultrafast',
+    '-crf', '23',
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-y',
+    outputPath
+  ];
+
+  await invoke<string>('run_ffmpeg', { args: finalArgs });
+  
+} else {
+  // Normal concat for smaller projects
+  const concatInputs = processedPaths.flatMap(p => ['-i', p]);
+  const concatFilter = processedPaths.map((_, i) => `[${i}:v][${i}:a]`).join('') +
+    `concat=n=${processedPaths.length}:v=1:a=1[outv][outa]`;
+
+  const concatArgs = [
+    ...concatInputs,
+    '-filter_complex', concatFilter,
+    '-map', '[outv]',
+    '-map', '[outa]',
+    '-c:v', 'libx264',
+    '-preset', 'ultrafast',
+    '-crf', '23',
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-y',
+    outputPath
+  ];
+
+  await invoke<string>('run_ffmpeg', { args: concatArgs });
+}
+
+if (onProgress) onProgress(100);
+console.log(`Video combination complete at ${maxWidth}x${maxHeight} with captions!`);
     
   } catch (error) {
     console.error('FFmpeg processing failed:', error);

@@ -83,13 +83,16 @@ export default function MediaListPanel({
 
         if (item.type === 'video') {
           try {
-            const [duration, thumbnail] = await Promise.all([
+            const [duration, thumbnail, resolution] = await Promise.all([
               invoke<number>('get_video_duration', { path }),
-              invoke<string>('generate_thumbnail', { videoPath: path })
+              invoke<string>('generate_thumbnail', { videoPath: path }),
+              invoke<string>('get_video_resolution', { path })
             ]);
             
             item.duration = duration;
             item.thumbnail = thumbnail;
+            item.resolution = resolution;
+
           } catch (error) {
             console.error('Error getting video info for', item.filename, error);
           }

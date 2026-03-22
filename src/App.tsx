@@ -14,6 +14,7 @@ import { exists } from '@tauri-apps/plugin-fs';
 import FinalizationWindow from './components/FinalizationWindow';
 import { AudioTrack } from './components/AudioTimeline';
 import YouTubeTimestampsModal from './components/YouTubeTimestampsModal';
+import ResolutionModal from './components/ResolutionModal';
 
 function App() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
@@ -39,6 +40,9 @@ const [projectSnapshot, setProjectSnapshot] = useState<ProjectSnapshot | null>(n
 const [combinedVideoPath, setCombinedVideoPath] = useState<string | null>(null);
 const [showFinalizationWindow, setShowFinalizationWindow] = useState(false);
 const [showYouTubeTimestamps, setShowYouTubeTimestamps] = useState(false);
+const [showResolutionModal, setShowResolutionModal] = useState(false);
+const [selectedResolution, setSelectedResolution] = useState<string>('1920x1080');
+const [forceRecombine, setForceRecombine] = useState(false);
 
   const selectedItem = mediaItems.find(item => item.id === selectedItemId) || null;
 
@@ -386,6 +390,12 @@ const saveProjectSnapshot = async (snapshot: ProjectSnapshot) => {
 // Check if video needs re-combining
 // Check if video needs re-combining
 const needsRecombining = async (): Promise<boolean> => {
+  // Force recombine if checkbox is checked
+  if (forceRecombine) {
+    console.log('Force re-combine enabled');
+    return true;
+  }
+
   const currentHash = generateProjectHash({
     mediaItems,
     captionSettings,
@@ -475,7 +485,6 @@ const combineVideo = async (): Promise<string> => {
 };
 
 // Handle Finalize & Export button click
-// Handle Finalize & Export button click
 const handleFinalizeAndExport = async () => {
   if (!projectPath) {
     alert('Please save your project first');
@@ -488,10 +497,40 @@ const handleFinalizeAndExport = async () => {
   }
   
   try {
+    // Check if we need to recombine FIRST
+    const needsUpdate = await needsRecombining();
+    
+    if (needsUpdate) {
+      // Video needs combining - show resolution modal
+      setShowResolutionModal(true);
+    } else {
+      // Reuse existing video - skip modal, go straight to finalization
+      console.log('Using existing combined video');
+      setShowFinalizationWindow(true);
+    }
+  } catch (error) {
+    console.error('Error in finalization:', error);
+    alert(`Error: ${error}`);
+  }
+};
+
+const getSuggestedResolution = (): string => {
+  const firstVideo = mediaItems.find(item => item.type === 'video');
+  if (firstVideo?.resolution) {
+    return firstVideo.resolution;
+  }
+  return '2704x1520'; // Default to common GoPro resolution
+};
+
+const handleResolutionConfirm = async (resolution: string) => {
+  setShowResolutionModal(false);
+  setSelectedResolution(resolution);
+  
+  try {
     if (await needsRecombining()) {
-      // Re-combine video
-      setProgressMessage('Changes detected. Combining video clips...');
-      await combineVideo();
+      // Re-combine video with selected resolution
+      setProgressMessage('Combining video clips...');
+      await combineVideoWithResolution(resolution);
     }
     
     // Now open the finalization window
@@ -501,6 +540,56 @@ const handleFinalizeAndExport = async () => {
     console.error('Error in finalization:', error);
     alert(`Error: ${error}`);
   }
+};
+
+const combineVideoWithResolution = async (resolution: string): Promise<string> => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      setShowProgressModal(true);
+      setProgressMessage('Combining video clips...');
+      setProgressPercent(0);
+      
+      const combinedPath = projectPath!.replace('.cjproj', '_combined.mp4');
+      
+      const { combineVideo: ffmpegCombine } = await import('./utils/ffmpeg');
+      
+      // Pass resolution to ffmpeg
+      await ffmpegCombine({
+        mediaItems,
+        outputPath: combinedPath,
+        aspectRatio,
+        defaultPhotoDuration,
+        captionSettings,
+        targetResolution: resolution,
+        onProgress: (percent) => {
+          setProgressPercent(percent);
+        }
+      });
+      
+      const currentHash = generateProjectHash({
+        mediaItems,
+        captionSettings,
+        aspectRatio,
+        defaultPhotoDuration
+      });
+      
+      const snapshot = createSnapshot(
+        currentHash,
+        combinedPath,
+        mediaItems.length,
+        editedLength
+      );
+      
+      await saveProjectSnapshot(snapshot);
+      setCombinedVideoPath(combinedPath);
+      
+      setShowProgressModal(false);
+      resolve(combinedPath);
+    } catch (error) {
+      setShowProgressModal(false);
+      reject(error);
+    }
+  });
 };
 
 const handleCloseFinalization = () => {
@@ -810,28 +899,24 @@ const mergeVideoWithAudio = async (
             </select>
           </div>
 
-<button 
-  onClick={handleFinalizeAndExport}
-  className="ml-auto px-4 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm"
->
-  Finalize & Export
-</button>
-<button 
-  onClick={async () => {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const result = await invoke<string>('run_ffmpeg', { 
-        args: ['-version'] 
-      });
-      alert(`FFmpeg works!\n\n${result}`);
-    } catch (error) {
-      alert(`FFmpeg failed:\n${error}`);
-    }
-  }}
-  className="px-4 py-1 bg-purple-600 hover:bg-purple-700 rounded text-sm"
->
-  Test FFmpeg Backend
-</button>
+<div className="ml-auto flex items-center gap-3">
+  <label className="flex items-center gap-2 text-xs text-gray-400">
+    <input
+      type="checkbox"
+      checked={forceRecombine}
+      onChange={(e) => setForceRecombine(e.target.checked)}
+      className="w-4 h-4"
+    />
+    Force Re-combine
+  </label>
+  
+  <button 
+    onClick={handleFinalizeAndExport}
+    className="px-4 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+  >
+    Finalize & Export
+  </button>
+</div>
         </div>
       </div>
 
@@ -924,6 +1009,14 @@ const mergeVideoWithAudio = async (
     mediaItems={mediaItems}
     defaultPhotoDuration={defaultPhotoDuration}
     onClose={() => setShowYouTubeTimestamps(false)}
+  />
+)}
+
+{showResolutionModal && (
+  <ResolutionModal
+    suggestedResolution={getSuggestedResolution()}
+    onConfirm={handleResolutionConfirm}
+    onCancel={() => setShowResolutionModal(false)}
   />
 )}
       {showFinalizationWindow && combinedVideoPath && projectPath && (

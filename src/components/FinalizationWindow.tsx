@@ -253,8 +253,8 @@ const handleSaveProject = async () => {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Video Preview (Left) */}
-        <div className="flex-1 flex flex-col bg-black">
-          <div className="flex-1 flex items-center justify-center">
+<div className="flex-1 flex flex-col bg-black min-h-0">
+  <div className="flex-1 flex items-center justify-center min-h-0 overflow-hidden">
             {videoSrc ? (
               <video
                 ref={videoRef}
@@ -271,7 +271,7 @@ const handleSaveProject = async () => {
           </div>
 
 {/* Video Controls */}
-<div className="bg-gray-800 p-4 border-t border-gray-700">
+<div className="bg-gray-800 p-4 border-t border-gray-700 flex-shrink-0">
   <div className="flex flex-col gap-3">
     {/* Progress Bar */}
     <div className="flex items-center gap-3">

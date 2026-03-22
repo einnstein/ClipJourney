@@ -184,6 +184,33 @@ fn run_ffmpeg(args: Vec<String>) -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+fn get_video_resolution(path: String) -> Result<String, String> {
+    let output = Command::new("ffprobe")
+        .args(&[
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0",
+            &path
+        ])
+        .output()
+        .map_err(|e| format!("Failed to execute ffprobe: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!("ffprobe failed: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+
+    let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // Output is like "2704,1520" - convert to "2704x1520"
+    let parts: Vec<&str> = result.split(',').collect();
+    if parts.len() == 2 {
+        Ok(format!("{}x{}", parts[0], parts[1]))
+    } else {
+        Err("Failed to parse resolution".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -199,7 +226,8 @@ pub fn run() {
             read_image_as_base64,
             generate_timeline_thumbnails,
             exclude_file,
-            run_ffmpeg  // ADD THIS
+            run_ffmpeg,
+          get_video_resolution  // ADD THIS
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
