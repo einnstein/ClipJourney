@@ -11,8 +11,7 @@ interface UsePreviewPlaybackProps {
   onCurrentItemChange: (itemId: string) => void;
   onPreviewModeChange: (isPreview: boolean) => void;
 videoRef: React.RefObject<HTMLVideoElement | null>;
-imageRef: React.RefObject<HTMLImageElement | null>;
-  setVideoSrc: (src: string) => void;
+ setVideoSrc: (src: string) => void;
   setImageSrc: (src: string) => void;
 }
 
@@ -23,7 +22,6 @@ export function usePreviewPlayback({
   onCurrentItemChange,
   onPreviewModeChange,
   videoRef,
-  imageRef,
   setVideoSrc,
   setImageSrc
 }: UsePreviewPlaybackProps) {

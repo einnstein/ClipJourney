@@ -541,7 +541,7 @@ const handleCloseFinalization = () => {
   setShowFinalizationWindow(false);
 };
 
-const handleFinalExport = async (audioTracks: AudioTrack[]) => {
+const handleFinalExport = async (audioTracks: AudioTrack[], videoDuckingPercent: number) => {
   if (!combinedVideoPath || !projectPath) {
     alert('No video to export');
     return;
@@ -568,7 +568,7 @@ const handleFinalExport = async (audioTracks: AudioTrack[]) => {
       });
     } else {
       // Merge video with audio tracks
-      await mergeVideoWithAudio(combinedVideoPath, audioTracks, finalOutputPath);
+      await mergeVideoWithAudio(combinedVideoPath, audioTracks, finalOutputPath, videoDuckingPercent);
     }
 
     setShowProgressModal(false);
@@ -581,38 +581,41 @@ const handleFinalExport = async (audioTracks: AudioTrack[]) => {
   }
 };
 
+// Complete mergeVideoWithAudio function with video ducking
+// Replace your existing mergeVideoWithAudio function in App.tsx with this:
+
 const mergeVideoWithAudio = async (
   videoPath: string,
   audioTracks: AudioTrack[],
-  outputPath: string
+  outputPath: string,
+  videoDuckingPercent: number
 ) => {
   const { invoke } = await import('@tauri-apps/api/core');
   
-  // Build FFmpeg command to merge video + multiple audio tracks with fades and trimming
-  const inputs = ['-i', videoPath];
+  if (audioTracks.length === 0) {
+    await invoke('run_ffmpeg', {
+      args: ['-i', videoPath, '-c', 'copy', '-y', outputPath]
+    });
+    return;
+  }
   
-  // Add all audio inputs
-  audioTracks.forEach(track => {
-    inputs.push('-i', track.filepath);
-  });
+  const inputs = ['-i', videoPath];
+  audioTracks.forEach(track => inputs.push('-i', track.filepath));
 
-  // Build filter complex for audio processing
   const audioFilters: string[] = [];
   
+  // Process music tracks
   audioTracks.forEach((track, i) => {
-    const inputIdx = i + 1; // Video is input 0
+    const inputIdx = i + 1;
     const trackDuration = track.fullDuration - track.clipStart - track.clipEnd;
     
-    // Build filter chain for this track
     let filterChain = `[${inputIdx}:a]`;
     
-    // Trim audio (handle clipStart and clipEnd)
     if (track.clipStart > 0 || track.clipEnd > 0) {
       const trimEnd = track.fullDuration - track.clipEnd;
       filterChain += `atrim=start=${track.clipStart}:end=${trimEnd},asetpts=PTS-STARTPTS,`;
     }
     
-    // Apply fades
     if ((track.fadeInDuration || 0) > 0) {
       filterChain += `afade=t=in:st=0:d=${track.fadeInDuration},`;
     }
@@ -622,19 +625,16 @@ const mergeVideoWithAudio = async (
       filterChain += `afade=t=out:st=${fadeOutStart}:d=${track.fadeOutDuration},`;
     }
     
-    // Apply volume
-    filterChain += `volume=${track.volume},`;
-    
-    // Delay to position on timeline
-    const delayMs = Math.round(track.timelineStart * 1000);
-    filterChain += `adelay=${delayMs}|${delayMs}`;
-    
-    filterChain += `[a${i}]`;
+    filterChain += `volume=${track.volume},adelay=${Math.round(track.timelineStart * 1000)}|${Math.round(track.timelineStart * 1000)}[a${i}]`;
     audioFilters.push(filterChain);
   });
 
-  // Mix original video audio with all music tracks
-  const mixInputs = ['[0:a]', ...audioTracks.map((_, i) => `[a${i}]`)].join('');
+  // Simple video audio ducking - just set to constant ducking volume
+  const duckingVolume = videoDuckingPercent / 100;
+  audioFilters.push(`[0:a]volume=${duckingVolume},aformat=sample_rates=48000:channel_layouts=stereo[va]`);
+
+  // Mix everything
+  const mixInputs = ['[va]', ...audioTracks.map((_, i) => `[a${i}]`)].join('');
   const mixFilter = `${mixInputs}amix=inputs=${audioTracks.length + 1}:duration=first:normalize=0[aout]`;
 
   const filterComplex = audioFilters.join(';') + ';' + mixFilter;
@@ -642,9 +642,9 @@ const mergeVideoWithAudio = async (
   const args = [
     ...inputs,
     '-filter_complex', filterComplex,
-    '-map', '0:v',  // Video from input 0
-    '-map', '[aout]',  // Mixed audio
-    '-c:v', 'copy',  // Don't re-encode video
+    '-map', '0:v',
+    '-map', '[aout]',
+    '-c:v', 'copy',
     '-c:a', 'aac',
     '-b:a', '192k',
     '-y',
@@ -876,8 +876,7 @@ const mergeVideoWithAudio = async (
           onMediaItemsChange={setMediaItems}
           onSelectItem={handleSelectItem}
         />
-
-        {/* Right Side - Resizable Split */}
+{/* Right Side - Resizable Split */}
         <div 
           className="flex-1 flex flex-col relative"
           onMouseMove={handleMouseMove}

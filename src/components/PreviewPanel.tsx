@@ -47,8 +47,7 @@ export default function PreviewPanel({
     onCurrentItemChange,
     onPreviewModeChange,
     videoRef,
-    imageRef,
-    setVideoSrc,
+     setVideoSrc,
     setImageSrc
   });
 

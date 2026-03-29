@@ -7,32 +7,52 @@ use tauri::Manager;
 
 // Helper function to get bundled FFmpeg path
 fn get_ffmpeg_path(app: &tauri::AppHandle) -> Result<String, String> {
-    let resource_path = app.path()
-        .resource_dir()
-        .map_err(|e| format!("Failed to get resource directory: {}", e))?;
-    
-    let ffmpeg_path = resource_path.join("ffmpeg.exe");
-    
-    if !ffmpeg_path.exists() {
-        return Err(format!("FFmpeg not found at: {}", ffmpeg_path.display()));
+    #[cfg(debug_assertions)]
+    {
+        // Dev mode - use system FFmpeg
+        return Ok("ffmpeg".to_string());
     }
     
-    Ok(ffmpeg_path.to_string_lossy().to_string())
+    #[cfg(not(debug_assertions))]
+    {
+        // Release mode - use bundled FFmpeg
+        let resource_path = app.path()
+            .resource_dir()
+            .map_err(|e| format!("Failed to get resource directory: {}", e))?;
+        
+        let ffmpeg_path = resource_path.join("ffmpeg.exe");
+        
+        if !ffmpeg_path.exists() {
+            return Err(format!("FFmpeg not found at: {}", ffmpeg_path.display()));
+        }
+        
+        Ok(ffmpeg_path.to_string_lossy().to_string())
+    }
 }
 
 // Helper function to get bundled FFprobe path
 fn get_ffprobe_path(app: &tauri::AppHandle) -> Result<String, String> {
-    let resource_path = app.path()
-        .resource_dir()
-        .map_err(|e| format!("Failed to get resource directory: {}", e))?;
-    
-    let ffprobe_path = resource_path.join("ffprobe.exe");
-    
-    if !ffprobe_path.exists() {
-        return Err(format!("FFprobe not found at: {}", ffprobe_path.display()));
+    #[cfg(debug_assertions)]
+    {
+        // Dev mode - use system FFprobe
+        return Ok("ffprobe".to_string());
     }
     
-    Ok(ffprobe_path.to_string_lossy().to_string())
+    #[cfg(not(debug_assertions))]
+    {
+        // Release mode - use bundled FFprobe
+        let resource_path = app.path()
+            .resource_dir()
+            .map_err(|e| format!("Failed to get resource directory: {}", e))?;
+        
+        let ffprobe_path = resource_path.join("ffprobe.exe");
+        
+        if !ffprobe_path.exists() {
+            return Err(format!("FFprobe not found at: {}", ffprobe_path.display()));
+        }
+        
+        Ok(ffprobe_path.to_string_lossy().to_string())
+    }
 }
 
 #[tauri::command]
