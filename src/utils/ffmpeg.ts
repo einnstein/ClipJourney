@@ -181,7 +181,6 @@ export async function combineVideo(options: CombineVideoOptions): Promise<void> 
   const {
     mediaItems,
     outputPath,
-    aspectRatio,
     defaultPhotoDuration,
     captionSettings,
     onProgress

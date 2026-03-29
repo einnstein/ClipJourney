@@ -31,7 +31,6 @@ export default function PreviewPanel({
   const [imageSrc, setImageSrc] = useState<string>('');
 
   const {
-    isPlaying,
     setIsPlaying,
     currentTime,
     totalDuration,

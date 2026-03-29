@@ -3,6 +3,37 @@
 use std::process::Command;
 use std::fs;
 use base64::{Engine as _, engine::general_purpose};
+use tauri::Manager;
+
+// Helper function to get bundled FFmpeg path
+fn get_ffmpeg_path(app: &tauri::AppHandle) -> Result<String, String> {
+    let resource_path = app.path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource directory: {}", e))?;
+    
+    let ffmpeg_path = resource_path.join("ffmpeg.exe");
+    
+    if !ffmpeg_path.exists() {
+        return Err(format!("FFmpeg not found at: {}", ffmpeg_path.display()));
+    }
+    
+    Ok(ffmpeg_path.to_string_lossy().to_string())
+}
+
+// Helper function to get bundled FFprobe path
+fn get_ffprobe_path(app: &tauri::AppHandle) -> Result<String, String> {
+    let resource_path = app.path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource directory: {}", e))?;
+    
+    let ffprobe_path = resource_path.join("ffprobe.exe");
+    
+    if !ffprobe_path.exists() {
+        return Err(format!("FFprobe not found at: {}", ffprobe_path.display()));
+    }
+    
+    Ok(ffprobe_path.to_string_lossy().to_string())
+}
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -10,8 +41,10 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-fn get_video_duration(path: String) -> Result<f64, String> {
-    let output = Command::new("ffprobe")
+fn get_video_duration(app: tauri::AppHandle, path: String) -> Result<f64, String> {
+    let ffprobe_path = get_ffprobe_path(&app)?;
+    
+    let output = Command::new(ffprobe_path)
         .args([
             "-v", "error",
             "-show_entries", "format=duration",
@@ -29,7 +62,9 @@ fn get_video_duration(path: String) -> Result<f64, String> {
 }
 
 #[tauri::command]
-fn generate_thumbnail(video_path: String) -> Result<String, String> {
+fn generate_thumbnail(app: tauri::AppHandle, video_path: String) -> Result<String, String> {
+    let ffmpeg_path = get_ffmpeg_path(&app)?;
+    
     let temp_dir = std::env::temp_dir();
     let temp_file = temp_dir.join(format!("thumb_{}.jpg", std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -38,7 +73,7 @@ fn generate_thumbnail(video_path: String) -> Result<String, String> {
     
     let temp_path = temp_file.to_str().ok_or("Invalid temp path")?;
 
-    let output = Command::new("ffmpeg")
+    let output = Command::new(ffmpeg_path)
         .args([
             "-i", &video_path,
             "-ss", "00:00:01.000",
@@ -84,11 +119,14 @@ fn read_image_as_base64(image_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn generate_timeline_thumbnails(video_path: String, count: u32) -> Result<Vec<String>, String> {
+fn generate_timeline_thumbnails(app: tauri::AppHandle, video_path: String, count: u32) -> Result<Vec<String>, String> {
+    let ffmpeg_path = get_ffmpeg_path(&app)?;
+    let ffprobe_path = get_ffprobe_path(&app)?;
+    
     let temp_dir = std::env::temp_dir();
     let mut thumbnails = Vec::new();
 
-    let duration_output = Command::new("ffprobe")
+    let duration_output = Command::new(ffprobe_path)
         .args([
             "-v", "error",
             "-show_entries", "format=duration",
@@ -113,7 +151,7 @@ fn generate_timeline_thumbnails(video_path: String, count: u32) -> Result<Vec<St
         ));
         let temp_path = temp_file.to_str().ok_or("Invalid temp path")?;
 
-        let output = Command::new("ffmpeg")
+        let output = Command::new(&ffmpeg_path)
             .args([
                 "-ss", &format!("{:.2}", timestamp),
                 "-i", &video_path,
@@ -148,12 +186,10 @@ fn exclude_file(file_path: String) -> Result<String, String> {
     let parent = path.parent().ok_or("No parent directory")?;
     let filename = path.file_name().ok_or("No filename")?.to_str().ok_or("Invalid filename")?;
     
-    // Create "Excluded" folder in the same directory as the file
     let excluded_folder = parent.join("Excluded");
     fs::create_dir_all(&excluded_folder)
         .map_err(|e| format!("Failed to create Excluded folder: {}", e))?;
     
-    // Move file to Excluded folder
     let new_path = excluded_folder.join(filename);
     fs::rename(&file_path, &new_path)
         .map_err(|e| format!("Failed to move file: {}", e))?;
@@ -161,12 +197,13 @@ fn exclude_file(file_path: String) -> Result<String, String> {
     Ok(new_path.to_str().ok_or("Invalid path")?.to_string())
 }
 
-// ADD THIS NEW COMMAND
 #[tauri::command]
-fn run_ffmpeg(args: Vec<String>) -> Result<String, String> {
+fn run_ffmpeg(app: tauri::AppHandle, args: Vec<String>) -> Result<String, String> {
+    let ffmpeg_path = get_ffmpeg_path(&app)?;
+    
     println!("Running FFmpeg with args: {:?}", args);
     
-    let output = Command::new("ffmpeg")
+    let output = Command::new(ffmpeg_path)
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to execute FFmpeg: {}", e))?;
@@ -185,8 +222,10 @@ fn run_ffmpeg(args: Vec<String>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn get_video_resolution(path: String) -> Result<String, String> {
-    let output = Command::new("ffprobe")
+fn get_video_resolution(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let ffprobe_path = get_ffprobe_path(&app)?;
+    
+    let output = Command::new(ffprobe_path)
         .args(&[
             "-v", "error",
             "-select_streams", "v:0",
@@ -202,7 +241,6 @@ fn get_video_resolution(path: String) -> Result<String, String> {
     }
 
     let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    // Output is like "2704,1520" - convert to "2704x1520"
     let parts: Vec<&str> = result.split(',').collect();
     if parts.len() == 2 {
         Ok(format!("{}x{}", parts[0], parts[1]))
@@ -227,7 +265,7 @@ pub fn run() {
             generate_timeline_thumbnails,
             exclude_file,
             run_ffmpeg,
-          get_video_resolution  // ADD THIS
+            get_video_resolution
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

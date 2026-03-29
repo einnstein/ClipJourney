@@ -41,7 +41,6 @@ const [combinedVideoPath, setCombinedVideoPath] = useState<string | null>(null);
 const [showFinalizationWindow, setShowFinalizationWindow] = useState(false);
 const [showYouTubeTimestamps, setShowYouTubeTimestamps] = useState(false);
 const [showResolutionModal, setShowResolutionModal] = useState(false);
-const [selectedResolution, setSelectedResolution] = useState<string>('1920x1080');
 const [forceRecombine, setForceRecombine] = useState(false);
 
   const selectedItem = mediaItems.find(item => item.id === selectedItemId) || null;
@@ -431,59 +430,6 @@ const needsRecombining = async (): Promise<boolean> => {
   return false;
 };
 
-// Combine video using FFmpeg
-const combineVideo = async (): Promise<string> => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      setShowProgressModal(true);
-      setProgressMessage('Combining video clips with captions...');
-      setProgressPercent(0);
-      
-      // Generate combined video path
-      const combinedPath = projectPath!.replace('.cjproj', '_combined.mp4');
-      
-      // Import FFmpeg utility
-      const { combineVideo: ffmpegCombine } = await import('./utils/ffmpeg');
-      
-      // Combine video with FFmpeg
-      await ffmpegCombine({
-        mediaItems,
-        outputPath: combinedPath,
-        aspectRatio,
-        defaultPhotoDuration,
-        captionSettings,
-        onProgress: (percent) => {
-          setProgressPercent(percent);
-        }
-      });
-      
-      // Save snapshot
-      const currentHash = generateProjectHash({
-        mediaItems,
-        captionSettings,
-        aspectRatio,
-        defaultPhotoDuration
-      });
-      
-      const snapshot = createSnapshot(
-        currentHash,
-        combinedPath,
-        mediaItems.length,
-        editedLength
-      );
-      
-      await saveProjectSnapshot(snapshot);
-      setCombinedVideoPath(combinedPath);
-      
-      setShowProgressModal(false);
-      resolve(combinedPath);
-    } catch (error) {
-      setShowProgressModal(false);
-      reject(error);
-    }
-  });
-};
-
 // Handle Finalize & Export button click
 const handleFinalizeAndExport = async () => {
   if (!projectPath) {
@@ -524,8 +470,7 @@ const getSuggestedResolution = (): string => {
 
 const handleResolutionConfirm = async (resolution: string) => {
   setShowResolutionModal(false);
-  setSelectedResolution(resolution);
-  
+    
   try {
     if (await needsRecombining()) {
       // Re-combine video with selected resolution
