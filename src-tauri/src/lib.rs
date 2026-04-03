@@ -5,53 +5,63 @@ use std::fs;
 use base64::{Engine as _, engine::general_purpose};
 use tauri::Manager;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 // Helper function to get bundled FFmpeg path
 fn get_ffmpeg_path(app: &tauri::AppHandle) -> Result<String, String> {
     #[cfg(debug_assertions)]
     {
-        // Dev mode - use system FFmpeg
         return Ok("ffmpeg".to_string());
     }
     
     #[cfg(not(debug_assertions))]
     {
-        // Release mode - use bundled FFmpeg
-        let resource_path = app.path()
-            .resource_dir()
-            .map_err(|e| format!("Failed to get resource directory: {}", e))?;
-        
-        let ffmpeg_path = resource_path.join("ffmpeg.exe");
-        
-        if !ffmpeg_path.exists() {
-            return Err(format!("FFmpeg not found at: {}", ffmpeg_path.display()));
+        if let Ok(resource_path) = app.path().resource_dir() {
+            let ffmpeg_path = resource_path.join("ffmpeg.exe");
+            if ffmpeg_path.exists() {
+                return Ok(ffmpeg_path.to_string_lossy().to_string());
+            }
         }
         
-        Ok(ffmpeg_path.to_string_lossy().to_string())
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let up_path = exe_dir.join("_up_").join("resources").join("ffmpeg.exe");
+                if up_path.exists() {
+                    return Ok(up_path.to_string_lossy().to_string());
+                }
+            }
+        }
+        
+        Err("FFmpeg not found in any expected location".to_string())
     }
 }
 
-// Helper function to get bundled FFprobe path
 fn get_ffprobe_path(app: &tauri::AppHandle) -> Result<String, String> {
     #[cfg(debug_assertions)]
     {
-        // Dev mode - use system FFprobe
         return Ok("ffprobe".to_string());
     }
     
     #[cfg(not(debug_assertions))]
     {
-        // Release mode - use bundled FFprobe
-        let resource_path = app.path()
-            .resource_dir()
-            .map_err(|e| format!("Failed to get resource directory: {}", e))?;
-        
-        let ffprobe_path = resource_path.join("ffprobe.exe");
-        
-        if !ffprobe_path.exists() {
-            return Err(format!("FFprobe not found at: {}", ffprobe_path.display()));
+        if let Ok(resource_path) = app.path().resource_dir() {
+            let ffprobe_path = resource_path.join("ffprobe.exe");
+            if ffprobe_path.exists() {
+                return Ok(ffprobe_path.to_string_lossy().to_string());
+            }
         }
         
-        Ok(ffprobe_path.to_string_lossy().to_string())
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let up_path = exe_dir.join("_up_").join("resources").join("ffprobe.exe");
+                if up_path.exists() {
+                    return Ok(up_path.to_string_lossy().to_string());
+                }
+            }
+        }
+        
+        Err("FFprobe not found in any expected location".to_string())
     }
 }
 
@@ -64,14 +74,18 @@ fn greet(name: &str) -> String {
 fn get_video_duration(app: tauri::AppHandle, path: String) -> Result<f64, String> {
     let ffprobe_path = get_ffprobe_path(&app)?;
     
-    let output = Command::new(ffprobe_path)
-        .args([
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            &path
-        ])
-        .output()
+    let mut cmd = Command::new(ffprobe_path);
+    cmd.args([
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        &path
+    ]);
+    
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    
+    let output = cmd.output()
         .map_err(|e| format!("Failed to execute ffprobe: {}", e))?;
 
     let duration_str = String::from_utf8_lossy(&output.stdout);
@@ -93,16 +107,20 @@ fn generate_thumbnail(app: tauri::AppHandle, video_path: String) -> Result<Strin
     
     let temp_path = temp_file.to_str().ok_or("Invalid temp path")?;
 
-    let output = Command::new(ffmpeg_path)
-        .args([
-            "-i", &video_path,
-            "-ss", "00:00:01.000",
-            "-vframes", "1",
-            "-vf", "scale=160:90",
-            "-y",
-            temp_path
-        ])
-        .output()
+    let mut cmd = Command::new(ffmpeg_path);
+    cmd.args([
+        "-i", &video_path,
+        "-ss", "00:00:01.000",
+        "-vframes", "1",
+        "-vf", "scale=160:90",
+        "-y",
+        temp_path
+    ]);
+    
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    
+    let output = cmd.output()
         .map_err(|e| format!("Failed to execute ffmpeg: {}", e))?;
 
     if !output.status.success() {
@@ -146,14 +164,18 @@ fn generate_timeline_thumbnails(app: tauri::AppHandle, video_path: String, count
     let temp_dir = std::env::temp_dir();
     let mut thumbnails = Vec::new();
 
-    let duration_output = Command::new(ffprobe_path)
-        .args([
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            &video_path
-        ])
-        .output()
+    let mut cmd = Command::new(ffprobe_path);
+    cmd.args([
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        &video_path
+    ]);
+    
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    
+    let duration_output = cmd.output()
         .map_err(|e| format!("Failed to get duration: {}", e))?;
 
     let duration: f64 = String::from_utf8_lossy(&duration_output.stdout)
@@ -171,16 +193,20 @@ fn generate_timeline_thumbnails(app: tauri::AppHandle, video_path: String, count
         ));
         let temp_path = temp_file.to_str().ok_or("Invalid temp path")?;
 
-        let output = Command::new(&ffmpeg_path)
-            .args([
-                "-ss", &format!("{:.2}", timestamp),
-                "-i", &video_path,
-                "-vframes", "1",
-                "-vf", "scale=80:45",
-                "-y",
-                temp_path
-            ])
-            .output()
+        let mut cmd = Command::new(&ffmpeg_path);
+        cmd.args([
+            "-ss", &format!("{:.2}", timestamp),
+            "-i", &video_path,
+            "-vframes", "1",
+            "-vf", "scale=80:45",
+            "-y",
+            temp_path
+        ]);
+        
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000);
+        
+        let output = cmd.output()
             .map_err(|e| format!("Failed to generate thumbnail {}: {}", i, e))?;
 
         if !output.status.success() {
@@ -221,18 +247,17 @@ fn exclude_file(file_path: String) -> Result<String, String> {
 fn run_ffmpeg(app: tauri::AppHandle, args: Vec<String>) -> Result<String, String> {
     let ffmpeg_path = get_ffmpeg_path(&app)?;
     
-    println!("Running FFmpeg with args: {:?}", args);
+    let mut cmd = Command::new(ffmpeg_path);
+    cmd.args(&args);
     
-    let output = Command::new(ffmpeg_path)
-        .args(&args)
-        .output()
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    
+    let output = cmd.output()
         .map_err(|e| format!("Failed to execute FFmpeg: {}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    
-    println!("FFmpeg stdout: {}", stdout);
-    println!("FFmpeg stderr: {}", stderr);
 
     if output.status.success() {
         Ok(format!("Success!\nStdout: {}\nStderr: {}", stdout, stderr))
@@ -245,15 +270,19 @@ fn run_ffmpeg(app: tauri::AppHandle, args: Vec<String>) -> Result<String, String
 fn get_video_resolution(app: tauri::AppHandle, path: String) -> Result<String, String> {
     let ffprobe_path = get_ffprobe_path(&app)?;
     
-    let output = Command::new(ffprobe_path)
-        .args(&[
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height",
-            "-of", "csv=p=0",
-            &path
-        ])
-        .output()
+    let mut cmd = Command::new(ffprobe_path);
+    cmd.args(&[
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "csv=p=0",
+        &path
+    ]);
+    
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+    
+    let output = cmd.output()
         .map_err(|e| format!("Failed to execute ffprobe: {}", e))?;
 
     if !output.status.success() {
