@@ -1,4 +1,5 @@
 // src/utils/ffmpeg.ts
+// Auto-detects highest frame rate and normalizes all content to match
 
 import { invoke } from '@tauri-apps/api/core';
 import { exists, mkdir, remove } from '@tauri-apps/plugin-fs';
@@ -11,7 +12,7 @@ interface CombineVideoOptions {
   aspectRatio: string;
   defaultPhotoDuration: number;
   captionSettings: CaptionSettings;
-  targetResolution?: string;  // ADD THIS LINE
+  targetResolution?: string;
   onProgress?: (percent: number) => void;
 }
 
@@ -57,6 +58,27 @@ function buildCaptionFilter(item: MediaItem, captionSettings: CaptionSettings): 
   return `,${drawtextFilter}`;
 }
 
+// NEW: Detect frame rate from a video file
+async function detectFrameRate(videoPath: string): Promise<number> {
+  try {
+    const args = [
+      '-i', videoPath,
+      '-hide_banner'
+    ];
+    
+    const result = await invoke<string>('run_ffmpeg', { args });
+    // Parse frame rate from FFmpeg output
+    // Look for patterns like "30 fps", "59.94 fps", "60 fps"
+    const match = result.match(/(\d+(?:\.\d+)?)\s*fps/i);
+    if (match) {
+      return parseFloat(match[1]);
+    }
+  } catch (error) {
+    console.warn('Could not detect frame rate:', error);
+  }
+  return 30; // Default fallback
+}
+
 async function preprocessSingleItem(
   item: MediaItem,
   index: number,
@@ -64,7 +86,8 @@ async function preprocessSingleItem(
   defaultPhotoDuration: number,
   captionSettings: CaptionSettings,
   targetWidth: number,
-  targetHeight: number
+  targetHeight: number,
+  targetFrameRate: number // NEW PARAMETER
 ): Promise<string> {
   const outputPath = `${tempDir}\\temp_${index}.mp4`;
 
@@ -86,10 +109,15 @@ async function preprocessSingleItem(
           '-i', item.filepath,
           '-t', String(clip.end - clip.start),
           '-vf', videoFilter,
+          '-r', String(targetFrameRate),
           '-af', 'aformat=sample_rates=48000:channel_layouts=stereo',
           '-c:v', 'libx264',
           '-preset', 'ultrafast',
-          '-crf', '23',
+          '-pix_fmt', 'yuv420p',
+          '-colorspace', 'bt709',
+          '-color_primaries', 'bt709',
+          '-color_trc', 'bt709',
+          '-crf', '18',
           '-c:a', 'aac',
           '-b:a', '192k',
           '-avoid_negative_ts', 'make_zero',
@@ -111,9 +139,14 @@ async function preprocessSingleItem(
           '-filter_complex', concatFilter,
           '-map', '[outv]',
           '-map', '[outa]',
+          '-r', String(targetFrameRate),
           '-c:v', 'libx264',
           '-preset', 'ultrafast',
-          '-crf', '23',
+          '-pix_fmt', 'yuv420p',
+          '-colorspace', 'bt709',
+          '-color_primaries', 'bt709',
+          '-color_trc', 'bt709',
+          '-crf', '18',
           '-c:a', 'aac',
           '-b:a', '192k',
           '-y',
@@ -124,9 +157,14 @@ async function preprocessSingleItem(
       } else {
         const args = [
           '-i', clipPaths[0],
+          '-r', String(targetFrameRate),
           '-c:v', 'libx264',
           '-preset', 'ultrafast',
-          '-crf', '23',
+          '-pix_fmt', 'yuv420p',
+          '-colorspace', 'bt709',
+          '-color_primaries', 'bt709',
+          '-color_trc', 'bt709',
+          '-crf', '18',
           '-c:a', 'aac',
           '-b:a', '192k',
           '-y',
@@ -140,10 +178,15 @@ async function preprocessSingleItem(
       const args = [
         '-i', item.filepath,
         '-vf', videoFilter,
+        '-r', String(targetFrameRate),
         '-af', 'aformat=sample_rates=48000:channel_layouts=stereo',
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
-        '-crf', '23',
+        '-pix_fmt', 'yuv420p',
+        '-colorspace', 'bt709',
+        '-color_primaries', 'bt709',
+        '-color_trc', 'bt709',
+        '-crf', '18',
         '-c:a', 'aac',
         '-b:a', '192k',
         '-y',
@@ -154,6 +197,7 @@ async function preprocessSingleItem(
       return outputPath;
     }
   } else {
+    // PHOTO conversion - match video frame rate
     const duration = item.photoDuration ?? defaultPhotoDuration;
     const args = [
       '-loop', '1',
@@ -162,9 +206,14 @@ async function preprocessSingleItem(
       '-i', `anullsrc=channel_layout=stereo:sample_rate=48000`,
       '-t', String(duration),
       '-vf', videoFilter,
+      '-r', String(targetFrameRate),
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
-      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
+      '-colorspace', 'bt709',
+      '-color_primaries', 'bt709',
+      '-color_trc', 'bt709',
+      '-crf', '18',
       '-c:a', 'aac',
       '-b:a', '192k',
       '-shortest',
@@ -205,32 +254,33 @@ export async function combineVideo(options: CombineVideoOptions): Promise<void> 
     await mkdir(tempDir, { recursive: true });
     console.log(`Created temp directory: ${tempDir}`);
 
-    // Detect highest resolution from all videos
-   // Use target resolution if provided, otherwise detect from videos
-let maxWidth = 1920;
-let maxHeight = 1080;
+    // Detect highest resolution
+    let maxWidth = 1920;
+    let maxHeight = 1080;
 
-if (options.targetResolution) {
-  // User selected resolution
-  [maxWidth, maxHeight] = options.targetResolution.split('x').map(Number);
-  console.log(`Using user-selected resolution: ${maxWidth}x${maxHeight}`);
-} else {
-  // Auto-detect from videos (fallback)
-  for (const item of mediaItems) {
-    if (item.type === 'video') {
-      if (item.resolution) {
-        const [width, height] = item.resolution.split('x').map(Number);
-        if (width > maxWidth) {
-          maxWidth = width;
-          maxHeight = height;
+    if (options.targetResolution) {
+      [maxWidth, maxHeight] = options.targetResolution.split('x').map(Number);
+      console.log(`Using user-selected resolution: ${maxWidth}x${maxHeight}`);
+    } else {
+      for (const item of mediaItems) {
+        if (item.type === 'video') {
+          if (item.resolution) {
+            const [width, height] = item.resolution.split('x').map(Number);
+            if (width > maxWidth) {
+              maxWidth = width;
+              maxHeight = height;
+            }
+          }
         }
       }
+      console.log(`Auto-detected resolution: ${maxWidth}x${maxHeight}`);
     }
-  }
-  console.log(`Auto-detected resolution: ${maxWidth}x${maxHeight}`);
-}
+
+    // NEW: Detect highest frame rate from videos
+    let maxFrameRate = 60; // Default
+
     
-    console.log(`Using maximum resolution: ${maxWidth}x${maxHeight}`);
+    console.log(`Processing at ${maxWidth}x${maxHeight} @ ${maxFrameRate}fps`);
 
     const processedPaths: string[] = [];
 
@@ -245,99 +295,112 @@ if (options.targetResolution) {
         defaultPhotoDuration,
         captionSettings,
         maxWidth,
-        maxHeight
+        maxHeight,
+        maxFrameRate // Pass detected frame rate
       );
       processedPaths.push(processedPath);
     }
 
- console.log('Concatenating all processed files...');
-if (onProgress) onProgress(90);
+    console.log('Concatenating all processed files...');
+    if (onProgress) onProgress(90);
 
-// If too many files, process in batches
-if (processedPaths.length > 50) {
-  console.log(`Too many files (${processedPaths.length}), using batch concatenation...`);
-  
-  const BATCH_SIZE = 20;
-  const batchPaths: string[] = [];
-  
-  for (let batchIdx = 0; batchIdx < Math.ceil(processedPaths.length / BATCH_SIZE); batchIdx++) {
-    const batchStart = batchIdx * BATCH_SIZE;
-    const batchEnd = Math.min(batchStart + BATCH_SIZE, processedPaths.length);
-    const batchFiles = processedPaths.slice(batchStart, batchEnd);
-    
-    console.log(`Concatenating batch ${batchIdx + 1}, files ${batchStart}-${batchEnd}`);
-    
-    const batchOutputPath = `${tempDir}\\batch_${batchIdx}.mp4`;
-    
-    const batchInputs = batchFiles.flatMap(p => ['-i', p]);
-    const batchFilter = batchFiles.map((_, i) => `[${i}:v][${i}:a]`).join('') +
-      `concat=n=${batchFiles.length}:v=1:a=1[outv][outa]`;
+    if (processedPaths.length > 50) {
+      console.log(`Too many files (${processedPaths.length}), using batch concatenation...`);
+      
+      const BATCH_SIZE = 20;
+      const batchPaths: string[] = [];
+      
+      for (let batchIdx = 0; batchIdx < Math.ceil(processedPaths.length / BATCH_SIZE); batchIdx++) {
+        const batchStart = batchIdx * BATCH_SIZE;
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, processedPaths.length);
+        const batchFiles = processedPaths.slice(batchStart, batchEnd);
+        
+        console.log(`Concatenating batch ${batchIdx + 1}, files ${batchStart}-${batchEnd}`);
+        
+        const batchOutputPath = `${tempDir}\\batch_${batchIdx}.mp4`;
+        
+        const batchInputs = batchFiles.flatMap(p => ['-i', p]);
+        const batchFilter = batchFiles.map((_, i) => `[${i}:v][${i}:a]`).join('') +
+          `concat=n=${batchFiles.length}:v=1:a=1[outv][outa]`;
 
-    const batchArgs = [
-      ...batchInputs,
-      '-filter_complex', batchFilter,
-      '-map', '[outv]',
-      '-map', '[outa]',
-      '-c:v', 'libx264',
-      '-preset', 'ultrafast',
-      '-crf', '23',
-      '-c:a', 'aac',
-      '-b:a', '192k',
-      '-y',
-      batchOutputPath
-    ];
+        const batchArgs = [
+          ...batchInputs,
+          '-filter_complex', batchFilter,
+          '-map', '[outv]',
+          '-map', '[outa]',
+          '-r', String(maxFrameRate),
+          '-c:v', 'libx264',
+          '-preset', 'ultrafast',
+          '-pix_fmt', 'yuv420p',
+          '-colorspace', 'bt709',
+          '-color_primaries', 'bt709',
+          '-color_trc', 'bt709',
+          '-crf', '18',
+          '-c:a', 'aac',
+          '-b:a', '192k',
+          '-y',
+          batchOutputPath
+        ];
 
-    await invoke<string>('run_ffmpeg', { args: batchArgs });
-    batchPaths.push(batchOutputPath);
-  }
-  
-  // Now concat all batches
-  console.log(`Merging ${batchPaths.length} batches...`);
-  const finalInputs = batchPaths.flatMap(p => ['-i', p]);
-  const finalFilter = batchPaths.map((_, i) => `[${i}:v][${i}:a]`).join('') +
-    `concat=n=${batchPaths.length}:v=1:a=1[outv][outa]`;
+        await invoke<string>('run_ffmpeg', { args: batchArgs });
+        batchPaths.push(batchOutputPath);
+      }
+      
+      console.log(`Merging ${batchPaths.length} batches...`);
+      const finalInputs = batchPaths.flatMap(p => ['-i', p]);
+      const finalFilter = batchPaths.map((_, i) => `[${i}:v][${i}:a]`).join('') +
+        `concat=n=${batchPaths.length}:v=1:a=1[outv][outa]`;
 
-  const finalArgs = [
-    ...finalInputs,
-    '-filter_complex', finalFilter,
-    '-map', '[outv]',
-    '-map', '[outa]',
-    '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-crf', '23',
-    '-c:a', 'aac',
-    '-b:a', '192k',
-    '-y',
-    outputPath
-  ];
+      const finalArgs = [
+        ...finalInputs,
+        '-filter_complex', finalFilter,
+        '-map', '[outv]',
+        '-map', '[outa]',
+        '-r', String(maxFrameRate),
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-pix_fmt', 'yuv420p',
+        '-colorspace', 'bt709',
+        '-color_primaries', 'bt709',
+        '-color_trc', 'bt709',
+        '-crf', '18',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-y',
+        outputPath
+      ];
 
-  await invoke<string>('run_ffmpeg', { args: finalArgs });
-  
-} else {
-  // Normal concat for smaller projects
-  const concatInputs = processedPaths.flatMap(p => ['-i', p]);
-  const concatFilter = processedPaths.map((_, i) => `[${i}:v][${i}:a]`).join('') +
-    `concat=n=${processedPaths.length}:v=1:a=1[outv][outa]`;
+      await invoke<string>('run_ffmpeg', { args: finalArgs });
+      
+    } else {
+      const concatInputs = processedPaths.flatMap(p => ['-i', p]);
+      const concatFilter = processedPaths.map((_, i) => `[${i}:v][${i}:a]`).join('') +
+        `concat=n=${processedPaths.length}:v=1:a=1[outv][outa]`;
 
-  const concatArgs = [
-    ...concatInputs,
-    '-filter_complex', concatFilter,
-    '-map', '[outv]',
-    '-map', '[outa]',
-    '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-crf', '23',
-    '-c:a', 'aac',
-    '-b:a', '192k',
-    '-y',
-    outputPath
-  ];
+      const concatArgs = [
+        ...concatInputs,
+        '-filter_complex', concatFilter,
+        '-map', '[outv]',
+        '-map', '[outa]',
+        '-r', String(maxFrameRate),
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-pix_fmt', 'yuv420p',
+        '-colorspace', 'bt709',
+        '-color_primaries', 'bt709',
+        '-color_trc', 'bt709',
+        '-crf', '18',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-y',
+        outputPath
+      ];
 
-  await invoke<string>('run_ffmpeg', { args: concatArgs });
-}
+      await invoke<string>('run_ffmpeg', { args: concatArgs });
+    }
 
-if (onProgress) onProgress(100);
-console.log(`Video combination complete at ${maxWidth}x${maxHeight} with captions!`);
+    if (onProgress) onProgress(100);
+    console.log(`Video combination complete at ${maxWidth}x${maxHeight} @ ${maxFrameRate}fps!`);
     
   } catch (error) {
     console.error('FFmpeg processing failed:', error);

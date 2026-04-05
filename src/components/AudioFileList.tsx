@@ -22,6 +22,7 @@ export default function AudioFileList({
   onAddToTimeline
 }: AudioFileListProps) {
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{x: number, y: number, item: AudioItem} | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   
   const handleAddAudioFiles = async () => {
@@ -79,11 +80,39 @@ export default function AudioFileList({
 
   const handleContextMenu = (e: React.MouseEvent, item: AudioItem) => {
     e.preventDefault();
-    onAddToTimeline(item);
+    setContextMenu({ x: e.clientX, y: e.clientY, item });
+  };
+
+  const handleAddToTimeline = () => {
+    if (contextMenu) {
+      onAddToTimeline(contextMenu.item);
+      setContextMenu(null);
+    }
   };
 
   return (
     <div className="flex flex-col h-full">
+      {/* Context Menu */}
+      {contextMenu && (
+        <>
+          <div 
+            className="fixed inset-0 z-40"
+            onClick={() => setContextMenu(null)}
+          />
+          <div
+            className="fixed z-50 bg-gray-800 border border-gray-600 rounded shadow-lg py-1 min-w-[160px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <button
+              className="w-full px-4 py-2 text-left hover:bg-gray-700 flex items-center gap-2 text-sm"
+              onClick={handleAddToTimeline}
+            >
+              ➕ Add to Timeline
+            </button>
+          </div>
+        </>
+      )}
+
       <div className="p-3 border-b border-gray-700 flex items-center justify-between">
         <span className="text-sm font-semibold">Audio Files</span>
         <button

@@ -26,7 +26,8 @@ export default function FinalizationWindow({
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string>('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [videoDuckingPercent, setVideoDuckingPercent] = useState(50); // 50% default
+  const [videoDuckingPercent, setVideoDuckingPercent] = useState(50);
+  const [isSaving, setIsSaving] = useState(false); // NEW: Add saving state
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -41,7 +42,6 @@ export default function FinalizationWindow({
     loadVideo();
   }, [combinedVideoPath]);
 
-  // Load existing audio tracks from project
   useEffect(() => {
     const loadAudioTracks = async () => {
       try {
@@ -57,7 +57,6 @@ export default function FinalizationWindow({
           setAudioFiles(projectData.audioFiles);
         }
         
-        // Load video ducking percentage
         if (projectData.videoDuckingPercent !== undefined) {
           setVideoDuckingPercent(projectData.videoDuckingPercent);
         }
@@ -68,7 +67,6 @@ export default function FinalizationWindow({
     loadAudioTracks();
   }, [projectPath]);
 
-  // Create audio elements for each track
   useEffect(() => {
     const loadAudioElements = async () => {
       audioElementsRef.current.forEach(audio => audio.pause());
@@ -86,7 +84,6 @@ export default function FinalizationWindow({
     loadAudioElements();
   }, [timelineTracks]);
 
-  // Sync audio playback with video
   useEffect(() => {
     if (!videoRef.current) return;
 
@@ -153,7 +150,6 @@ export default function FinalizationWindow({
     };
   }, [timelineTracks]);
 
-  // Cleanup audio on unmount
   useEffect(() => {
     return () => {
       audioElementsRef.current.forEach(audio => {
@@ -170,7 +166,9 @@ export default function FinalizationWindow({
     }
   }, [timelineTracks, videoDuckingPercent]);
 
+  // UPDATED: Add loading state to save function
   const handleSaveProject = async () => {
+    setIsSaving(true);
     try {
       const { readTextFile } = await import('@tauri-apps/plugin-fs');
       const content = await readTextFile(projectPath);
@@ -186,6 +184,8 @@ export default function FinalizationWindow({
     } catch (error) {
       console.error('Error saving project:', error);
       alert(`Failed to save: ${error}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -236,11 +236,20 @@ export default function FinalizationWindow({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* UPDATED: Save button with loading state */}
           <button
             onClick={handleSaveProject}
-            className="px-4 py-1 bg-green-600 hover:bg-green-700 rounded text-sm font-semibold"
+            disabled={isSaving}
+            className="px-4 py-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded text-sm font-semibold flex items-center gap-2"
           >
-            💾 Save Project
+            {isSaving ? (
+              <>
+                <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>💾 Save Project</>
+            )}
           </button>
           <button
             onClick={() => onExport(timelineTracks, videoDuckingPercent)}

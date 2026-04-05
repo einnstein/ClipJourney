@@ -26,6 +26,7 @@ export default function MediaListPanel({
   const [sortBy, setSortBy] = useState<'order' | 'date'>('order');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [contextMenu, setContextMenu] = useState<{x: number, y: number, itemId: string} | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -83,18 +84,27 @@ export default function MediaListPanel({
 
         if (item.type === 'video') {
           try {
-            const [duration, thumbnail, resolution] = await Promise.all([
+            // Get duration and thumbnail first (these usually work)
+            const [duration, thumbnail] = await Promise.all([
               invoke<number>('get_video_duration', { path }),
-              invoke<string>('generate_thumbnail', { videoPath: path }),
-              invoke<string>('get_video_resolution', { path })
+              invoke<string>('generate_thumbnail', { videoPath: path })
             ]);
             
             item.duration = duration;
             item.thumbnail = thumbnail;
-            item.resolution = resolution;
+
+            // Try to get resolution separately - if it fails, use default
+            try {
+              item.resolution = await invoke<string>('get_video_resolution', { path });
+            } catch (resError) {
+              console.warn('Could not get resolution for', item.filename, '- using default 1920x1080');
+              item.resolution = '1920x1080'; // Default resolution
+            }
 
           } catch (error) {
             console.error('Error getting video info for', item.filename, error);
+            // Even if we fail, set some defaults so the item still loads
+            item.resolution = '1920x1080';
           }
         } else {
           try {
@@ -113,6 +123,103 @@ export default function MediaListPanel({
     } catch (error) {
       console.error('Error selecting files:', error);
     }
+  };
+
+  const handleInsertFiles = async (beforeItemId: string) => {
+    setContextMenu(null); // Close menu
+    
+    try {
+      const selected = await open({
+        multiple: true,
+        filters: [{
+          name: 'Media',
+          extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
+        }]
+      });
+
+      if (!selected) return;
+
+      const filePaths = Array.isArray(selected) ? selected : [selected];
+      
+      // Find the index to insert at
+      const insertIndex = mediaItems.findIndex(item => item.id === beforeItemId);
+      if (insertIndex === -1) return;
+      
+      // Create new items (same logic as handleAddFiles)
+      const newItems: MediaItem[] = filePaths.map((path, index) => {
+        const filename = path.split('\\').pop() || path.split('/').pop() || path;
+        const extension = filename.split('.').pop()?.toLowerCase() || '';
+        const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv'];
+        const isVideo = videoExtensions.includes(extension);
+
+        return {
+          id: `${Date.now()}_${index}`,
+          filename,
+          filepath: path,
+          type: isVideo ? 'video' : 'image',
+          duration: undefined,
+          thumbnail: undefined,
+          dateCreated: new Date(),
+          caption: '',
+          showCaption: true,
+          order: insertIndex + index
+        };
+      });
+
+      // Insert items at the specific index
+      const itemsBefore = mediaItems.slice(0, insertIndex);
+      const itemsAfter = mediaItems.slice(insertIndex);
+      const updatedItems = [...itemsBefore, ...newItems, ...itemsAfter];
+      
+      // Update order values
+      updatedItems.forEach((item, idx) => {
+        item.order = idx;
+      });
+      
+      onMediaItemsChange(updatedItems);
+
+      // Load thumbnails in background (same as handleAddFiles)
+      for (let index = 0; index < newItems.length; index++) {
+        const item = newItems[index];
+        const path = filePaths[index];
+
+        if (item.type === 'video') {
+          try {
+            const [duration, thumbnail] = await Promise.all([
+              invoke<number>('get_video_duration', { path }),
+              invoke<string>('generate_thumbnail', { videoPath: path })
+            ]);
+            
+            item.duration = duration;
+            item.thumbnail = thumbnail;
+
+            try {
+              item.resolution = await invoke<string>('get_video_resolution', { path });
+            } catch {
+              item.resolution = '1920x1080';
+            }
+          } catch (error) {
+            console.error('Error getting video info for', item.filename, error);
+            item.resolution = '1920x1080';
+          }
+        } else {
+          try {
+            item.thumbnail = await invoke<string>('read_image_as_base64', { imagePath: path });
+          } catch (error) {
+            console.error('Error reading image', item.filename, error);
+          }
+        }
+
+        onMediaItemsChange([...updatedItems]);
+      }
+    } catch (error) {
+      console.error('Error inserting files:', error);
+    }
+  };
+
+  const handleRightClick = (e: React.MouseEvent, itemId: string) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, itemId });
   };
 
   const handleDeleteItem = (id: string) => {
@@ -246,6 +353,16 @@ export default function MediaListPanel({
     }
   }, [selectedItemId]);
 
+  // Close context menu when clicking outside
+  useEffect(() => {
+    if (!contextMenu) return;
+    
+    const handleClickOutside = () => setContextMenu(null);
+    document.addEventListener('click', handleClickOutside);
+    
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [contextMenu]);
+
   return (
     <div className="w-[30%] bg-gray-800 border-r border-gray-700 flex flex-col relative">
       {/* Preview Mode Overlay */}
@@ -254,6 +371,27 @@ export default function MediaListPanel({
           <div className="text-white text-lg font-semibold mb-2">Preview in Progress</div>
           <div className="text-gray-300 text-sm">Stop preview to edit media</div>
         </div>
+      )}
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <>
+          <div 
+            className="fixed inset-0 z-40"
+            onClick={() => setContextMenu(null)}
+          />
+          <div
+            className="fixed z-50 bg-gray-800 border border-gray-600 rounded shadow-lg py-1 min-w-[180px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <button
+              className="w-full px-4 py-2 text-left hover:bg-gray-700 flex items-center gap-2 text-sm"
+              onClick={() => handleInsertFiles(contextMenu.itemId)}
+            >
+              📥 Insert Files Above
+            </button>
+          </div>
+        </>
       )}
       
       <div className="p-3 border-b border-gray-700 flex items-center justify-between">
@@ -291,6 +429,7 @@ export default function MediaListPanel({
                 if (el) itemRefs.current.set(item.id, el);
               }}
               className="relative"
+              onContextMenu={(e) => handleRightClick(e, item.id)}
             >
               {/* Highlight the target position */}
               {hoverIndex === index && draggingId && draggingId !== item.id && (

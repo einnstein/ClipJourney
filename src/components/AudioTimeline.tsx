@@ -41,17 +41,55 @@ export default function AudioTimeline({
     return track.fullDuration - track.clipStart - track.clipEnd;
   };
 
-  const checkCollision = (trackId: string, newStart: number, newDuration: number): boolean => {
-    const newEnd = newStart + newDuration;
-    
-    return audioTracks.some(track => {
-      if (track.id === trackId) return false;
-      
+  // Auto-bump tracks to prevent overlaps
+  const handleTrackMove = (trackId: string, newStart: number): AudioTrack[] => {
+    const movingTrack = audioTracks.find(t => t.id === trackId);
+    if (!movingTrack) return audioTracks;
+
+    const movingDuration = getTrackDuration(movingTrack);
+    const movingEnd = newStart + movingDuration;
+
+    // Find tracks that would collide with the moving track
+    const updatedTracks = audioTracks.map(track => {
+      if (track.id === trackId) {
+        // Update the track being moved
+        return { ...track, timelineStart: newStart };
+      }
+
+      const trackDuration = getTrackDuration(track);
       const trackStart = track.timelineStart;
-      const trackEnd = trackStart + getTrackDuration(track);
-      
-      return (newStart < trackEnd && newEnd > trackStart);
+      const trackEnd = trackStart + trackDuration;
+
+      // Check if this track overlaps with the moving track
+      const overlaps = (newStart < trackEnd && movingEnd > trackStart);
+
+      if (overlaps) {
+        // Determine which direction to bump
+        // If moving track is coming from the left, bump this track to the right
+        // If moving track is coming from the right, bump this track to the left
+        const movingFromLeft = newStart < trackStart;
+        
+        if (movingFromLeft) {
+          // Bump to the right (after the moving track)
+          const bumpedStart = movingEnd + 0.1; // Small gap
+          // Make sure it doesn't go past timeline end
+          if (bumpedStart + trackDuration <= totalDuration) {
+            return { ...track, timelineStart: bumpedStart };
+          }
+        } else {
+          // Bump to the left (before the moving track)
+          const bumpedStart = newStart - trackDuration - 0.1; // Small gap
+          // Make sure it doesn't go before timeline start
+          if (bumpedStart >= 0) {
+            return { ...track, timelineStart: bumpedStart };
+          }
+        }
+      }
+
+      return track;
     });
+
+    return updatedTracks;
   };
 
   const handleTrackMouseDown = (e: React.MouseEvent, trackId: string) => {
@@ -69,14 +107,14 @@ export default function AudioTimeline({
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const deltaTime = (deltaX / rect.width) * totalDuration;
-      const newStartTime = Math.max(0, Math.min(totalDuration - trackDuration, startTimelineStart + deltaTime));
+      let newStartTime = startTimelineStart + deltaTime;
+      
+      // Clamp to timeline bounds
+      newStartTime = Math.max(0, Math.min(totalDuration - trackDuration, newStartTime));
 
-      if (!checkCollision(trackId, newStartTime, trackDuration)) {
-        const updatedTracks = audioTracks.map(t =>
-          t.id === trackId ? { ...t, timelineStart: newStartTime } : t
-        );
-        onAudioTracksChange(updatedTracks);
-      }
+      // Apply auto-bump
+      const updatedTracks = handleTrackMove(trackId, newStartTime);
+      onAudioTracksChange(updatedTracks);
     };
 
     const handleMouseUp = () => {
@@ -105,14 +143,20 @@ export default function AudioTimeline({
       const deltaTime = (deltaX / rect.width) * totalDuration;
       
       const newClipStart = Math.max(0, Math.min(track.fullDuration - track.clipEnd - 0.1, startClipStart + deltaTime));
-      const newTimelineStart = startTimelineStart + deltaTime;
+      let newTimelineStart = startTimelineStart + deltaTime;
       const newDuration = track.fullDuration - newClipStart - track.clipEnd;
 
-      if (newTimelineStart >= 0 && newDuration > 0.1 && !checkCollision(trackId, newTimelineStart, newDuration)) {
-        const updatedTracks = audioTracks.map(t =>
-          t.id === trackId ? { ...t, clipStart: newClipStart, timelineStart: newTimelineStart } : t
+      if (newTimelineStart >= 0 && newDuration > 0.1) {
+        // Apply auto-bump for edge trimming
+        newTimelineStart = Math.max(0, Math.min(totalDuration - newDuration, newTimelineStart));
+        const updatedTracks = handleTrackMove(trackId, newTimelineStart);
+        
+        // Update clip start on the moved track
+        const finalTracks = updatedTracks.map(t =>
+          t.id === trackId ? { ...t, clipStart: newClipStart } : t
         );
-        onAudioTracksChange(updatedTracks);
+        
+        onAudioTracksChange(finalTracks);
       }
     };
 
@@ -143,7 +187,7 @@ export default function AudioTimeline({
       const newClipEnd = Math.max(0, Math.min(track.fullDuration - track.clipStart - 0.1, startClipEnd - deltaTime));
       const newDuration = track.fullDuration - track.clipStart - newClipEnd;
 
-      if (newDuration > 0.1 && !checkCollision(trackId, track.timelineStart, newDuration)) {
+      if (newDuration > 0.1) {
         const updatedTracks = audioTracks.map(t =>
           t.id === trackId ? { ...t, clipEnd: newClipEnd } : t
         );
@@ -338,9 +382,9 @@ export default function AudioTimeline({
         <div className="flex-1 relative h-full">
         <div
           ref={timelineRef}
-          className="absolute inset-0 bg-gray-800 border border-gray-700 rounded overflow-visible" // Changed overflow-hidden to overflow-visible
+          className="absolute inset-0 bg-gray-800 border border-gray-700 rounded overflow-visible"
           onClick={() => setSelectedTrackId(null)}
-          style={{ paddingTop: '16px' }} // Add padding for labels
+          style={{ paddingTop: '16px' }}
         >
             {timeMarkers.map((time) => {
               const position = totalDuration > 0 ? (time / totalDuration) * 100 : 0;
@@ -350,7 +394,6 @@ export default function AudioTimeline({
                   className="absolute top-0 bottom-0 border-l border-gray-600"
                   style={{ left: `${position}%` }}
                 >
-                  {/* Time label */}
                   <div className="absolute top-0 -translate-x-1/2 -translate-y-full pb-1 text-[9px] text-gray-500 whitespace-nowrap">
                     {formatTime(time)}
                   </div>

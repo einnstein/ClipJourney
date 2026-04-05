@@ -584,6 +584,9 @@ const handleFinalExport = async (audioTracks: AudioTrack[], videoDuckingPercent:
 // Complete mergeVideoWithAudio function with video ducking
 // Replace your existing mergeVideoWithAudio function in App.tsx with this:
 
+// Fixed mergeVideoWithAudio in App.tsx
+// The fade-out start time was calculating negative values
+
 const mergeVideoWithAudio = async (
   videoPath: string,
   audioTracks: AudioTrack[],
@@ -616,20 +619,23 @@ const mergeVideoWithAudio = async (
       filterChain += `atrim=start=${track.clipStart}:end=${trimEnd},asetpts=PTS-STARTPTS,`;
     }
     
-    if ((track.fadeInDuration || 0) > 0) {
-      filterChain += `afade=t=in:st=0:d=${track.fadeInDuration},`;
+    // FIX: Only add fade-in if duration is positive
+    if ((track.fadeInDuration || 0) > 0 && trackDuration > 0) {
+      filterChain += `afade=t=in:st=0:d=${Math.min(track.fadeInDuration, trackDuration)},`;
     }
     
-    if ((track.fadeOutDuration || 0) > 0) {
-      const fadeOutStart = trackDuration - track.fadeOutDuration;
-      filterChain += `afade=t=out:st=${fadeOutStart}:d=${track.fadeOutDuration},`;
+    // FIX: Calculate fade-out correctly
+    if ((track.fadeOutDuration || 0) > 0 && trackDuration > 0) {
+      const fadeOutStart = Math.max(0, trackDuration - track.fadeOutDuration);
+      const fadeOutDuration = Math.min(track.fadeOutDuration, trackDuration);
+      filterChain += `afade=t=out:st=${fadeOutStart}:d=${fadeOutDuration},`;
     }
     
     filterChain += `volume=${track.volume},adelay=${Math.round(track.timelineStart * 1000)}|${Math.round(track.timelineStart * 1000)}[a${i}]`;
     audioFilters.push(filterChain);
   });
 
-  // Simple video audio ducking - just set to constant ducking volume
+  // Simple video audio ducking
   const duckingVolume = videoDuckingPercent / 100;
   audioFilters.push(`[0:a]volume=${duckingVolume},aformat=sample_rates=48000:channel_layouts=stereo[va]`);
 
@@ -808,10 +814,22 @@ const mergeVideoWithAudio = async (
                 <span className="text-lg font-semibold text-blue-400">{formatDuration(totalLength)}</span>
               </div>
               <div className="w-px h-8 bg-gray-700"></div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-gray-400 uppercase">Edited Length</span>
-                <span className="text-lg font-semibold text-green-400">{formatDuration(editedLength)}</span>
-              </div>
+<div className="flex flex-col">
+  <div className="flex items-center gap-2">
+    <span className="text-[10px] text-gray-400 uppercase">Edited Length</span>
+    <button 
+      onClick={() => {
+        // Force recalculation by updating a dummy state
+        setMediaItems([...mediaItems]);
+      }}
+      className="text-xs px-1.5 py-0.5 bg-gray-700 hover:bg-gray-600 rounded"
+      title="Recalculate edited length"
+    >
+      🔄
+    </button>
+  </div>
+  <span className="text-lg font-semibold text-green-400">{formatDuration(editedLength)}</span>
+</div>
             </div>
           </div>
 
