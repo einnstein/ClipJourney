@@ -58,26 +58,7 @@ function buildCaptionFilter(item: MediaItem, captionSettings: CaptionSettings): 
   return `,${drawtextFilter}`;
 }
 
-// NEW: Detect frame rate from a video file
-async function detectFrameRate(videoPath: string): Promise<number> {
-  try {
-    const args = [
-      '-i', videoPath,
-      '-hide_banner'
-    ];
-    
-    const result = await invoke<string>('run_ffmpeg', { args });
-    // Parse frame rate from FFmpeg output
-    // Look for patterns like "30 fps", "59.94 fps", "60 fps"
-    const match = result.match(/(\d+(?:\.\d+)?)\s*fps/i);
-    if (match) {
-      return parseFloat(match[1]);
-    }
-  } catch (error) {
-    console.warn('Could not detect frame rate:', error);
-  }
-  return 30; // Default fallback
-}
+
 
 async function preprocessSingleItem(
   item: MediaItem,
